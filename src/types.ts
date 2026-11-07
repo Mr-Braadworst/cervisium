@@ -108,6 +108,11 @@ export interface PubGlassDeal {
   checkedAt: string; // ISO date string (Gecheckt op: DD-MM-YYYY)
   actieEindDatum: string; // YYYY-MM-DD
   submittedBy?: string;
+  verificationSnippet?: string; // Tekstbewijs gevonden op de live webpagina
+  verifiedPageTitle?: string; // Geverifieerde <title> van de doelpagina
+  verifiedHttpStatus?: number; // Laatst gemeten HTTP statuscode (bijv. 200)
+  verifiedLive?: boolean; // Of de URL live door de server is bevestigd
+  matchedKeywords?: string[]; // Gevonden actie-trefwoorden op de pagina
 }
 
 export type AppLanguagePreference = 'auto' | 'nl' | 'en' | 'de' | 'fr' | 'es';

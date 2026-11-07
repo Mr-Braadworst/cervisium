@@ -284,6 +284,14 @@ export function sanitizePubDeal(raw: unknown): PubGlassDeal {
       ? (obj.dealCategory as DealCategory)
       : 'glas';
 
+  const matchedKeywords = Array.isArray(obj.matchedKeywords)
+    ? obj.matchedKeywords
+        .filter((k): k is string => typeof k === 'string')
+        .map((k) => sanitizeString(k, 40))
+        .filter(Boolean)
+        .slice(0, 8)
+    : undefined;
+
   return {
     id: isValidEntityId(obj.id) ? obj.id : generateSecureId('deal'),
     pubName: sanitizeString(obj.pubName, 150, 'Onbekend Café'),
@@ -301,6 +309,18 @@ export function sanitizePubDeal(raw: unknown): PubGlassDeal {
     checkedAt: sanitizeString(obj.checkedAt, 40, new Date().toISOString().split('T')[0]),
     actieEindDatum: sanitizeString(obj.actieEindDatum, 40),
     submittedBy: sanitizeString(obj.submittedBy, 100),
+    verificationSnippet: obj.verificationSnippet
+      ? sanitizeString(obj.verificationSnippet, 320)
+      : undefined,
+    verifiedPageTitle: obj.verifiedPageTitle
+      ? sanitizeString(obj.verifiedPageTitle, 160)
+      : undefined,
+    verifiedHttpStatus:
+      typeof obj.verifiedHttpStatus === 'number'
+        ? Math.round(clampNumber(obj.verifiedHttpStatus, 100, 599, 200))
+        : undefined,
+    verifiedLive: typeof obj.verifiedLive === 'boolean' ? obj.verifiedLive : undefined,
+    matchedKeywords,
   };
 }
 

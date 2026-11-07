@@ -618,6 +618,231 @@ async function startServer() {
   });
 
   // ==========================================================================
+  // 3B. LIVE WEBSITE & ACTIE VERIFICATIE (SSRF-beveiligde server-side checker)
+  // ==========================================================================
+  function isSafePublicUrl(rawUrl: string): URL | null {
+    try {
+      const parsed = new URL(rawUrl.trim());
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      const host = parsed.hostname.toLowerCase();
+      if (
+        !host ||
+        host === 'localhost' ||
+        host.endsWith('.local') ||
+        host.endsWith('.internal') ||
+        host.endsWith('.localhost') ||
+        host === '0.0.0.0' ||
+        host === '::1' ||
+        host === '[::1]' ||
+        /^127\./.test(host) ||
+        /^10\./.test(host) ||
+        /^192\.168\./.test(host) ||
+        /^169\.254\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
+        /^0\./.test(host)
+      ) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function decodeHtmlEntities(input: string): string {
+    return input
+      .replace(/&#(\d+);/g, (_m, dec) => String.fromCharCode(Number(dec)))
+      .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/&amp;/gi, '&')
+      .replace(/&ndash;|&#8211;/gi, '–')
+      .replace(/&mdash;|&#8212;/gi, '—')
+      .replace(/&rsquo;|&lsquo;|&#8217;|&#8216;/gi, "'")
+      .replace(/&ldquo;|&rdquo;|&#8220;|&#8221;|&quot;/gi, '"')
+      .replace(/&euro;/gi, '€')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  app.post('/api/deals/verify-url', async (req, res) => {
+    try {
+      const { url, dealTitle = '', beerBrand = '', pubName = '' } = (req.body || {}) as {
+        url?: string;
+        dealTitle?: string;
+        beerBrand?: string;
+        pubName?: string;
+      };
+
+      if (!url || typeof url !== 'string') {
+        res.status(400).json({ verified: false, error: 'Geen geldige URL opgegeven.' });
+        return;
+      }
+
+      const safeTarget = isSafePublicUrl(url);
+      if (!safeTarget) {
+        res.status(400).json({ verified: false, error: 'Ongeldige of niet-publieke URL.' });
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 7500);
+
+      let fetchRes: globalThis.Response;
+      try {
+        fetchRes = await fetch(safeTarget.href, {
+          method: 'GET',
+          redirect: 'follow',
+          signal: controller.signal,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'nl-NL,nl;q=0.9,en;q=0.8',
+          },
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      const finalSafe = isSafePublicUrl(fetchRes.url || safeTarget.href);
+      if (!finalSafe) {
+        res.status(400).json({ verified: false, error: 'Redirect naar niet-publieke URL geblokkeerd.' });
+        return;
+      }
+
+      const rawHtml = (await fetchRes.text()).slice(0, 350_000);
+      const rawTitle =
+        rawHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ||
+        rawHtml.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+        '';
+      const pageTitle = sanitizeServerString(decodeHtmlEntities(rawTitle), 150, finalSafe.hostname);
+
+      const metaDesc =
+        rawHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+        rawHtml.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+        '';
+
+      // Verwijder scripts, styles, nav en tags voor schone paginatekst
+      const cleanBlocks = rawHtml
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+        .replace(/<\/(p|div|h1|h2|h3|h4|li|tr|section|article)>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .split('\n')
+        .map((line) => decodeHtmlEntities(line))
+        .filter((line) => line.length >= 25 && line.length <= 420);
+
+      const fullTextLower = `${pageTitle} ${decodeHtmlEntities(metaDesc)} ${cleanBlocks.join(' ')}`.toLowerCase();
+
+      // Controleer op domein-te-koop of 404 pagina's die toch HTTP 200 sturen
+      const isFake200 =
+        /domain for sale|domein te koop|pagina niet gevonden|page not found|404 not found/i.test(pageTitle);
+
+      const candidateTerms = [
+        'proeverij',
+        'proeflokaal',
+        'rondleiding',
+        'arrangement',
+        'bierproeverij',
+        'high beer',
+        'proefplank',
+        'glas',
+        '4-pack',
+        'bierpakket',
+        'proefbox',
+        'taptafel',
+        'taproom',
+        'brewpub',
+        'borrel',
+        'speciaalbier',
+        'wisseltap',
+        'tap',
+        'bieren',
+        'brouwerij',
+        'actie',
+        'korting',
+        'events',
+      ];
+
+      // Voeg specifieke woorden uit de dealTitle / beerBrand / pubName toe
+      const customWords = `${dealTitle} ${beerBrand} ${pubName}`
+        .toLowerCase()
+        .replace(/[^a-z0-9à-ÿ\s-]/gi, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length >= 4 && !['voor', 'naar', 'bij', 'met', 'van', 'een', 'het', 'alle', 'gratis'].includes(w));
+
+      const matchedKeywords: string[] = [];
+      for (const term of [...new Set([...customWords, ...candidateTerms])]) {
+        if (fullTextLower.includes(term.toLowerCase())) {
+          matchedKeywords.push(term);
+        }
+        if (matchedKeywords.length >= 6) break;
+      }
+
+      // Zoek de beste zin op de pagina die het meeste bewijs bevat
+      const dealKeywords = [
+        'proeverij',
+        'rondleiding',
+        'arrangement',
+        'glas',
+        'pakket',
+        'proefbox',
+        'taptafel',
+        'taproom',
+        'brewpub',
+        'proeflokaal',
+        'speciaalbier',
+        'borrel',
+        'tap',
+        '€',
+      ];
+
+      let bestSnippet = decodeHtmlEntities(metaDesc);
+      let bestScore = 0;
+
+      for (const block of cleanBlocks) {
+        const lower = block.toLowerCase();
+        if (/cookie|privacy|algemene voorwaarden|copyright|alle rechten/i.test(lower)) continue;
+        let score = 0;
+        for (const kw of dealKeywords) {
+          if (lower.includes(kw)) score += 3;
+        }
+        for (const cw of customWords) {
+          if (lower.includes(cw)) score += 2;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestSnippet = block;
+        }
+      }
+
+      if (!bestSnippet && cleanBlocks.length > 0) {
+        bestSnippet = cleanBlocks[0];
+      }
+
+      const verified = fetchRes.status >= 200 && fetchRes.status < 400 && !isFake200 && matchedKeywords.length > 0;
+
+      res.json({
+        verified,
+        httpStatus: isFake200 ? 404 : fetchRes.status,
+        finalUrl: finalSafe.href,
+        pageTitle,
+        matchedKeywords,
+        liveSnippet: sanitizeServerString(bestSnippet || pageTitle, 280),
+        checkedAt: new Date().toISOString().split('T')[0],
+      });
+    } catch (err) {
+      res.status(200).json({
+        verified: false,
+        httpStatus: 0,
+        error: err instanceof Error ? err.message : 'Website kon niet live worden bereikt.',
+        checkedAt: new Date().toISOString().split('T')[0],
+      });
+    }
+  });
+
+  // ==========================================================================
   // 4. SERVER-SIDE VERGRENDELDE ADMIN ENDPOINTS (requireAdmin middleware)
   // ==========================================================================
   app.get('/api/admin/verify', requireAdmin, async (req, res) => {
