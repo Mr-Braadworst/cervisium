@@ -815,8 +815,12 @@ export default function App() {
     }
   };
 
-  // If user is not logged in, present Google Sign-In Screen
-  if (!activeUser) {
+  const isGoogleAuthRelay =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('google_auth_relay') === '1';
+
+  // If user is not logged in (or window is acting as Google Auth Relay), present Google Sign-In Screen
+  if (!activeUser || isGoogleAuthRelay) {
     return (
       <LoginScreen
         onLogin={handleLogin}

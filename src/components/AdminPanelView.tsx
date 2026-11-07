@@ -73,8 +73,6 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   const [importProgressPct, setImportProgressPct] = useState<number>(0);
   const [importReport, setImportReport] = useState<AdminImportReport | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [serverEngineLabel, setServerEngineLabel] = useState<string>('firestore');
-
   const authorized = isSuperAdmin(adminUser);
 
   const loadStats = useCallback(async () => {
@@ -93,14 +91,13 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         setLoading(false);
         return;
       }
-      setServerEngineLabel(serverCheck.databaseEngine);
       const result = await fetchAdminDashboardData(adminUser);
       setStats(result);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : 'Kon admin-gegevens niet ophalen uit Firestore.'
+          : 'Kon admin-gegevens niet ophalen.'
       );
     } finally {
       setLoading(false);
@@ -240,7 +237,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               </button>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                Geverifieerde Eigenaar ({adminUser.email})
+                Geverifieerde Eigenaar
               </span>
             </div>
 
@@ -248,7 +245,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               BierLog Beheer &amp; Admin Panel
             </h1>
             <p className="text-xs sm:text-sm text-zinc-400 max-w-2xl">
-              Realtime inzicht in je Cloud Firestore database-opslag (MB &amp; GB gebruikt en vrij), app-gebruik, geregistreerde accounts en de mogelijkheid om de website exact te bekijken zoals een specifieke gebruiker hem ziet.
+              Realtime inzicht in je opslag (MB &amp; GB gebruikt en vrij), app-gebruik, geregistreerde accounts en de mogelijkheid om de website exact te bekijken zoals een specifieke gebruiker hem ziet.
             </p>
           </div>
 
@@ -259,7 +256,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-zinc-950 text-xs sm:text-sm font-extrabold shadow-lg shadow-amber-500/20 transition-all"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              {loading ? 'Database Scannen...' : 'Ververs Database Scan'}
+              {loading ? 'Scannen...' : 'Ververs Scan'}
             </button>
 
             {stats && (
@@ -286,14 +283,14 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg font-extrabold text-zinc-100">
-                  Database Migratie: Exporteer &amp; Importeer Data
+                  Data Migratie: Exporteer &amp; Importeer Data
                 </h2>
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                  Server-side Beveiligd ({serverEngineLabel})
+                  Server-side Beveiligd
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-0.5 max-w-3xl">
-                Exporteer één compleet JSON-bestand met alle geregistreerde gebruikers, rollen (<code className="text-amber-300">admin</code> / <code className="text-amber-300">user</code>), categorieën, biertjes, proefnotities, glazen en geüploade foto&apos;s, of importeer een bestaand bestand veilig in je nieuwe database.
+                Exporteer één compleet JSON-bestand met alle geregistreerde gebruikers, rollen (<code className="text-amber-300">admin</code> / <code className="text-amber-300">user</code>), categorieën, biertjes, proefnotities, glazen en geüploade foto&apos;s, of importeer een bestaand bestand veilig.
               </p>
             </div>
           </div>
@@ -308,8 +305,8 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 1. Exporteer Alle Data (JSON)
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Download een volledige database-dump met alle{' '}
-                <strong className="text-zinc-200">{stats?.totalUsers ?? 0} gebruikers</strong>, hun rollen en alle bijbehorende records &amp; afbeeldingen voor back-up of migratie naar een eigen PostgreSQL / Supabase / Firestore database.
+                Download een volledige back-up met alle{' '}
+                <strong className="text-zinc-200">{stats?.totalUsers ?? 0} gebruikers</strong>, hun rollen en alle bijbehorende records &amp; afbeeldingen.
               </p>
             </div>
 
@@ -427,7 +424,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         <div className="p-14 rounded-3xl bg-zinc-900/70 border border-zinc-800 text-center space-y-3">
           <RefreshCw className="w-8 h-8 text-amber-400 animate-spin mx-auto" />
           <p className="text-sm font-bold text-zinc-200">
-            Firestore database, opslagcapaciteit en gebruikersprofielen worden gescand...
+            Opslagcapaciteit en gebruikersprofielen worden gescand...
           </p>
           <p className="text-xs text-zinc-500">
             Alle collecties (bieren, proefnotities, bierglazen, categorieën en foto&apos;s) worden doorgerekend.
@@ -435,7 +432,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         </div>
       ) : stats ? (
         <>
-          {/* 1. DATABASE STORAGE & GB QUOTA CARD */}
+          {/* 1. STORAGE & GB QUOTA CARD */}
           <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-6 shadow-xl space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
               <div className="flex items-center gap-3">
@@ -444,10 +441,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 </div>
                 <div>
                   <h2 className="text-lg font-extrabold text-zinc-100">
-                    Database Opslag &amp; Capaciteit (Cloud Firestore)
+                    Opslag &amp; Capaciteit
                   </h2>
                   <p className="text-xs text-zinc-400">
-                    Exacte berekening van alle documenten, velden, indexen en geüploade foto&apos;s tegenover je 1,00 GB (1.024 MB) database-limiet
+                    Exacte berekening van alle documenten, velden, indexen en geüploade foto&apos;s tegenover je 1,00 GB (1.024 MB) opslaglimiet
                   </p>
                 </div>
               </div>
@@ -717,10 +714,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 <div>
                   <h2 className="text-lg font-extrabold text-zinc-100 flex items-center gap-2">
                     <Users className="w-5 h-5 text-amber-400" />
-                    Alle Database Gebruikers ({stats.users.length})
+                    Alle Gebruikers ({stats.users.length})
                   </h2>
                   <p className="text-xs text-zinc-400 mt-0.5">
-                    Alle gebruikers in je Firestore database (inclusief accounts die rechtstreeks uit de collecties bieren, glazen, proefnotities en categorieën zijn gedetecteerd). Klik op een gebruiker om de website exact te bekijken zoals zij hem zien.
+                    Alle geregistreerde gebruikers (inclusief accounts die rechtstreeks uit de collecties bieren, glazen, proefnotities en categorieën zijn gedetecteerd). Klik op een gebruiker om de website exact te bekijken zoals zij hem zien.
                   </p>
                 </div>
 
