@@ -21,6 +21,7 @@ import { DatePickerInput } from './DatePickerInput';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
 import { ConfirmModal } from './ConfirmModal';
 import { validateAndCompressImageFile, safeIsoDate, clampNumber } from '../utils/security';
+import { getBrowserDateLocale } from '../utils/i18n';
 
 interface BeerGlassesViewProps {
   glasses: BeerGlass[];
@@ -396,17 +397,25 @@ export const BeerGlassesView: React.FC<BeerGlassesViewProps> = ({
                 <div className="p-4 sm:p-5">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h3 className="font-extrabold text-base text-zinc-100 group-hover:text-amber-400 transition-colors">
+                      <h3
+                        translate="no"
+                        data-no-translate="true"
+                        className="notranslate font-extrabold text-base text-zinc-100 group-hover:text-amber-400 transition-colors"
+                      >
                         {glass.name}
                       </h3>
-                      <p className="text-xs text-zinc-400 mt-0.5">
+                      <p
+                        translate={glass.brand ? 'no' : undefined}
+                        data-no-translate={glass.brand ? 'true' : undefined}
+                        className={`${glass.brand ? 'notranslate ' : ''}text-xs text-zinc-400 mt-0.5`}
+                      >
                         {glass.brand || 'Geen brouwerij/merk opgegeven'}
                       </p>
                     </div>
                     {glass.dateAdded && (
                       <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500 shrink-0 mt-0.5">
                         <Calendar className="w-3 h-3 text-amber-500/70" />
-                        {new Date(glass.dateAdded).toLocaleDateString('nl-NL', {
+                        {new Date(glass.dateAdded).toLocaleDateString(getBrowserDateLocale(), {
                           day: 'numeric',
                           month: 'short',
                           year: 'numeric',

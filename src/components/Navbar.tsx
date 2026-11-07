@@ -72,7 +72,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-lg sm:text-xl tracking-tight text-zinc-100 group-hover:text-amber-400 transition-colors">
+                <span
+                  translate="no"
+                  data-no-translate="true"
+                  className="notranslate font-extrabold text-lg sm:text-xl tracking-tight text-zinc-100 group-hover:text-amber-400 transition-colors"
+                >
                   Cervisium
                 </span>
               </div>

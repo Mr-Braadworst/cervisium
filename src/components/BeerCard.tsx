@@ -3,6 +3,7 @@ import { Beer, Category, Tasting } from '../types';
 import { RatingBadge } from './RatingBadge';
 import { ConfirmModal } from './ConfirmModal';
 import { Beer as BeerIcon, Heart, MoreVertical, Edit3, Trash2, Calendar, Eye, PlusCircle, MapPin } from 'lucide-react';
+import { getBrowserDateLocale } from '../utils/i18n';
 
 interface BeerCardProps {
   beer: Beer;
@@ -52,7 +53,7 @@ export const BeerCard: React.FC<BeerCardProps> = ({
     : null;
 
   const formattedDate = lastTasting 
-    ? new Date(lastTasting.date).toLocaleDateString('nl-NL', {
+    ? new Date(lastTasting.date).toLocaleDateString(getBrowserDateLocale(), {
         day: 'numeric',
         month: 'short',
         year: 'numeric',
@@ -175,10 +176,18 @@ export const BeerCard: React.FC<BeerCardProps> = ({
         {/* Middle Row: Left-aligned Title, Brewery & Tags + Right-aligned Photo */}
         <div className="flex items-start justify-between gap-3.5 mb-3">
           <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-lg text-zinc-100 group-hover:text-amber-300 transition-colors line-clamp-1">
+            <h3
+              translate="no"
+              data-no-translate="true"
+              className="notranslate font-bold text-lg text-zinc-100 group-hover:text-amber-300 transition-colors line-clamp-1"
+            >
               {beer.name}
             </h3>
-            <p className="text-sm text-zinc-400 mb-2.5 line-clamp-1 font-medium">
+            <p
+              translate={beer.brewery ? 'no' : undefined}
+              data-no-translate={beer.brewery ? 'true' : undefined}
+              className={`${beer.brewery ? 'notranslate ' : ''}text-sm text-zinc-400 mb-2.5 line-clamp-1 font-medium`}
+            >
               {beer.brewery ? beer.brewery : 'Onbekende brouwerij'}
             </p>
             <div className="flex items-center gap-1.5 flex-wrap text-[11px]">

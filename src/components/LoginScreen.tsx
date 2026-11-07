@@ -490,7 +490,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <Beer className="w-8 h-8 stroke-[2.5]" />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-zinc-100">Cervisium</h1>
+            <h1
+              translate="no"
+              data-no-translate="true"
+              className="notranslate text-3xl font-extrabold tracking-tight text-zinc-100"
+            >
+              Cervisium
+            </h1>
             <p className="text-xs font-semibold text-amber-400 tracking-wider uppercase mt-0.5">
               Persoonlijke Bier Collectie &amp; Proefnotities
             </p>
