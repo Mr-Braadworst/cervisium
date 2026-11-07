@@ -3,6 +3,10 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
   signOut,
   onAuthStateChanged,
   User as FirebaseUser,
@@ -23,10 +27,38 @@ import {
 import defaultFirebaseConfig from '../firebase-applet-config.json';
 
 /**
- * Ondersteunt zowel zelfstandige hosting (via VITE_FIREBASE_* omgevingsvariabelen op een eigen domein)
+ * Ondersteunt zowel zelfstandige hosting (via omgevingsvariabelen op een eigen server)
  * als de bestaande configuratie in firebase-applet-config.json.
  */
 function resolveFirebaseConfig() {
+  if (typeof window !== 'undefined') {
+    const winConfig = (
+      window as unknown as {
+        __BIERLOG_FIREBASE_CONFIG__?: {
+          apiKey?: string;
+          authDomain?: string;
+          projectId?: string;
+          storageBucket?: string;
+          messagingSenderId?: string;
+          appId?: string;
+          firestoreDatabaseId?: string;
+        };
+      }
+    ).__BIERLOG_FIREBASE_CONFIG__;
+
+    if (winConfig?.apiKey && winConfig?.projectId) {
+      return {
+        apiKey: winConfig.apiKey,
+        authDomain: winConfig.authDomain || `${winConfig.projectId}.firebaseapp.com`,
+        projectId: winConfig.projectId,
+        storageBucket: winConfig.storageBucket || `${winConfig.projectId}.firebasestorage.app`,
+        messagingSenderId: winConfig.messagingSenderId || '',
+        appId: winConfig.appId || '',
+        firestoreDatabaseId: winConfig.firestoreDatabaseId || '(default)',
+      };
+    }
+  }
+
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
   const hasCustomEnv =
     env.VITE_FIREBASE_API_KEY &&
@@ -79,7 +111,7 @@ export interface FirestoreErrorInfo {
     email?: string | null;
     emailVerified?: boolean | null;
     isAnonymous?: boolean | null;
-    tenantId?: string | null;
+    tenantId?: boolean | string | null;
     providerInfo?: {
       providerId?: string | null;
       email?: string | null;
@@ -114,7 +146,6 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Connection test as required by skill (skipped when running strictly on Docker PostgreSQL)
 export async function testConnection() {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
   if (env.VITE_USE_FIRESTORE === 'false') {
@@ -133,6 +164,10 @@ testConnection();
 
 export {
   signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
   signOut,
   onAuthStateChanged,
   collection,

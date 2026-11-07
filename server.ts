@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -435,9 +436,57 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { index: false }));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const indexPath = path.join(distPath, 'index.html');
+      const runtimeApiKey = (
+        process.env.FIREBASE_API_KEY ||
+        process.env.VITE_FIREBASE_API_KEY ||
+        ''
+      ).trim();
+      const runtimeProjectId = (
+        process.env.FIREBASE_PROJECT_ID ||
+        process.env.VITE_FIREBASE_PROJECT_ID ||
+        ''
+      ).trim();
+
+      if (
+        runtimeApiKey &&
+        runtimeApiKey !== 'YOUR_FIREBASE_WEB_API_KEY' &&
+        runtimeProjectId &&
+        runtimeProjectId !== 'your-project-id'
+      ) {
+        try {
+          const rawHtml = fs.readFileSync(indexPath, 'utf8');
+          const runtimeConfig = {
+            apiKey: runtimeApiKey,
+            authDomain:
+              (process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim() ||
+              `${runtimeProjectId}.firebaseapp.com`,
+            projectId: runtimeProjectId,
+            storageBucket:
+              (process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim() ||
+              `${runtimeProjectId}.firebasestorage.app`,
+            messagingSenderId: (
+              process.env.FIREBASE_MESSAGING_SENDER_ID ||
+              process.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+              ''
+            ).trim(),
+            appId: (process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || '').trim(),
+            firestoreDatabaseId:
+              (process.env.FIREBASE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '').trim() ||
+              '(default)',
+          };
+          const scriptTag = `<script>window.__BIERLOG_FIREBASE_CONFIG__=${JSON.stringify(runtimeConfig)};</script>`;
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.send(rawHtml.replace('<head>', `<head>${scriptTag}`));
+          return;
+        } catch {
+          // Fallback naar standaard index.html
+        }
+      }
+
+      res.sendFile(indexPath);
     });
   }
 

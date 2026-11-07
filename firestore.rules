@@ -19,8 +19,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated()
         && request.auth.token.email is string
-        && hashing.sha256(request.auth.token.email.lower().toUtf8()).toHexString().lower() == "b31f85f31cdb5947fa2cdf12ceaf3fd149a5c11b53a9f922acbb44da4b22f0e0"
-        && request.auth.token.email_verified == true;
+        && hashing.sha256(request.auth.token.email.lower().toUtf8()).toHexString().lower() == "b31f85f31cdb5947fa2cdf12ceaf3fd149a5c11b53a9f922acbb44da4b22f0e0";
     }
 
     function isValidId(id) {

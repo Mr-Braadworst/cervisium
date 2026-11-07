@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserAccount } from '../types';
-import { auth, googleProvider, signInWithPopup, onAuthStateChanged } from '../firebase';
+import {
+  auth,
+  googleProvider,
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
+} from '../firebase';
 import {
   saveCategories,
   saveBeers,
@@ -17,6 +25,11 @@ import {
   AlertCircle,
   ShieldAlert,
   Clock,
+  Mail,
+  KeyRound,
+  User,
+  LogIn,
+  UserPlus,
 } from 'lucide-react';
 
 interface LoginScreenProps {
@@ -27,20 +40,6 @@ interface LoginScreenProps {
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minuten blokkade bij 5 pogingen
 const RATE_LIMIT_STORAGE_KEY = 'bierlog_login_rate_limit';
-
-// Geautoriseerde Google Auth Relay URL voor wanneer de site op een eigen server-IP draait
-const AUTHORIZED_AUTH_RELAY_URL =
-  'https://ais-dev-z4nn4qkyycamzcu75aa3pk-950808790776.europe-west2.run.app';
-
-function isDirectlyAuthorizedFirebaseHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return (
-    h.endsWith('.run.app') ||
-    h.endsWith('.firebaseapp.com') ||
-    h.endsWith('.web.app') ||
-    h.endsWith('.ai.studio')
-  );
-}
 
 interface RateLimitData {
   attempts: number;
@@ -83,17 +82,17 @@ const STANDALONE_GOOGLE_CLIENT_ID = (
 ).trim();
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+
   const [rateLimit, setRateLimit] = useState<RateLimitData>(getStoredRateLimit);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(0);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
   const googleGsiButtonRef = useRef<HTMLDivElement>(null);
-  const relayPopupRef = useRef<Window | null>(null);
-
-  // Controleer of dit venster als Google Auth Relay pop-up is geopend vanaf de eigen server
-  const searchParams = new URLSearchParams(window.location.search);
-  const isAuthRelay = searchParams.get('google_auth_relay') === '1';
-  const relayTargetOrigin = searchParams.get('target_origin') || '*';
 
   const isLocked = secondsRemaining > 0;
   const attemptsRemaining = Math.max(0, MAX_LOGIN_ATTEMPTS - rateLimit.attempts);
@@ -102,6 +101,26 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const minutes = Math.floor(totalSec / 60);
     const seconds = totalSec % 60;
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  };
+
+  const registerFailedAttempt = (customMessage: string) => {
+    const newAttempts = rateLimit.attempts + 1;
+    if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+      const newLockedUntil = Date.now() + LOCKOUT_DURATION_MS;
+      const newLimit: RateLimitData = { attempts: newAttempts, lockedUntil: newLockedUntil };
+      saveRateLimit(newLimit);
+      setRateLimit(newLimit);
+      setSecondsRemaining(Math.ceil(LOCKOUT_DURATION_MS / 1000));
+      setAuthError(
+        `Maximaal aantal inlogpogingen (${MAX_LOGIN_ATTEMPTS}) bereikt! Je account is voor 15 minuten tijdelijk vergrendeld ter beveiliging.`
+      );
+    } else {
+      const newLimit: RateLimitData = { attempts: newAttempts, lockedUntil: null };
+      saveRateLimit(newLimit);
+      setRateLimit(newLimit);
+      const remaining = MAX_LOGIN_ATTEMPTS - newAttempts;
+      setAuthError(`${customMessage} (Nog ${remaining} poging${remaining === 1 ? '' : 'en'} over)`);
+    }
   };
 
   const verifyAndSyncWithBackend = useCallback(
@@ -127,8 +146,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
           const serverUser: UserAccount = {
             id: data.user.id,
-            name: data.user.name,
-            googleName: data.user.googleName,
+            name: fallbackAccount?.name || data.user.name,
+            googleName: data.user.googleName || fallbackAccount?.name,
             email: data.user.email,
             role: data.user.role,
             avatarUrl: data.user.avatarUrl,
@@ -157,98 +176,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       }
 
       if (fallbackAccount) return fallbackAccount;
-      throw new Error('Kon Google-account niet verifiëren.');
+      throw new Error('Kon account niet verifiëren.');
     },
     []
-  );
-
-  // Als dit venster is teruggekomen via een #google_auth_token=... hash redirect (bijv. mobiel)
-  useEffect(() => {
-    const hash = window.location.hash || '';
-    if (!hash.startsWith('#google_auth_token=')) return;
-    const token = decodeURIComponent(hash.replace('#google_auth_token=', '').trim());
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    if (!token) return;
-
-    setIsSigningIn(true);
-    setAuthError(null);
-    verifyAndSyncWithBackend(token)
-      .then((account) => {
-        clearRateLimit();
-        setRateLimit({ attempts: 0, lockedUntil: null });
-        onLogin(account);
-      })
-      .catch(() => {
-        setAuthError('Google login verificatie mislukt.');
-      })
-      .finally(() => {
-        setIsSigningIn(false);
-      });
-  }, [onLogin, verifyAndSyncWithBackend]);
-
-  // Luister op de eigen server naar het bericht vanuit het Google Auth Relay pop-upvenster
-  useEffect(() => {
-    if (isAuthRelay) return;
-
-    const handleMessage = async (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || data.type !== 'BIERLOG_GOOGLE_AUTH_SUCCESS' || typeof data.idToken !== 'string') {
-        return;
-      }
-
-      setIsSigningIn(true);
-      setAuthError(null);
-      try {
-        const fallbackAccount: UserAccount | undefined = data.user?.id
-          ? {
-              id: data.user.id,
-              name: data.user.name || 'Bierliefhebber',
-              googleName: data.user.name,
-              email: data.user.email || '',
-              avatarUrl: data.user.avatarUrl,
-              createdAt: new Date().toISOString(),
-            }
-          : undefined;
-
-        const verified = await verifyAndSyncWithBackend(data.idToken, fallbackAccount);
-        clearRateLimit();
-        setRateLimit({ attempts: 0, lockedUntil: null });
-        onLogin(verified);
-      } catch {
-        setAuthError('Kon Google-inlog niet afronden.');
-      } finally {
-        setIsSigningIn(false);
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [isAuthRelay, onLogin, verifyAndSyncWithBackend]);
-
-  // Als dit venster in Google Auth Relay modus draait en de gebruiker is al ingelogd op het relay-domein,
-  // stuur het verse Google ID-token direct terug naar de eigen server en sluit het pop-upvenster!
-  const sendTokenBackToCaller = useCallback(
-    async (fbUser: any) => {
-      const idToken = await fbUser.getIdToken(true);
-      const payload = {
-        type: 'BIERLOG_GOOGLE_AUTH_SUCCESS',
-        idToken,
-        user: {
-          id: fbUser.uid,
-          name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Bierliefhebber',
-          email: fbUser.email || '',
-          avatarUrl: fbUser.photoURL || undefined,
-        },
-      };
-
-      if (window.opener && !window.opener.closed) {
-        window.opener.postMessage(payload, relayTargetOrigin);
-        setTimeout(() => window.close(), 150);
-      } else if (relayTargetOrigin && relayTargetOrigin.startsWith('http')) {
-        window.location.href = `${relayTargetOrigin}/#google_auth_token=${encodeURIComponent(idToken)}`;
-      }
-    },
-    [relayTargetOrigin]
   );
 
   // Check lockout status and update countdown timer
@@ -333,6 +263,157 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     document.head.appendChild(script);
   }, [isLocked, onLogin, verifyAndSyncWithBackend]);
 
+  // Firebase Email / Wachtwoord Inloggen of Account Aanmaken
+  const handleFirebaseEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLocked) {
+      setAuthError(
+        `Toegang tijdelijk vergrendeld wegens te veel mislukte inlogpogingen. Wacht nog ${formatCountdown(secondsRemaining)}.`
+      );
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setAuthError('Vul een geldig e-mailadres in.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setAuthError('Wachtwoord moet minimaal 6 tekens bevatten.');
+      return;
+    }
+
+    setAuthError(null);
+    setResetSuccessMessage(null);
+    setIsSigningIn(true);
+
+    try {
+      let userCredential;
+      if (authMode === 'register') {
+        userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+        const chosenName =
+          displayName.trim() ||
+          cleanEmail
+            .split('@')[0]
+            .replace(/[._-]+/g, ' ')
+            .replace(/\b\w/g, (c) => c.toUpperCase()) ||
+          'Bierliefhebber';
+
+        try {
+          await updateProfile(userCredential.user, { displayName: chosenName });
+        } catch {
+          // Negeer optionele profiel-update fout
+        }
+      } else {
+        userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+      }
+
+      const user = userCredential.user;
+      const idToken = await user.getIdToken(true);
+
+      clearRateLimit();
+      setRateLimit({ attempts: 0, lockedUntil: null });
+
+      const resolvedName =
+        (authMode === 'register' && displayName.trim()) ||
+        user.displayName ||
+        cleanEmail
+          .split('@')[0]
+          .replace(/[._-]+/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase()) ||
+        'Bierliefhebber';
+
+      const fallbackAccount: UserAccount = {
+        id: user.uid,
+        name: resolvedName,
+        googleName: resolvedName,
+        email: user.email || cleanEmail,
+        avatarUrl: user.photoURL || undefined,
+        createdAt: new Date().toISOString(),
+      };
+
+      const verifiedAccount = await verifyAndSyncWithBackend(idToken, fallbackAccount);
+      onLogin(verifiedAccount);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+
+      if (msg.includes('operation-not-allowed')) {
+        setAuthError(
+          'Zet eerst "Email/Password" aan in jouw Firebase Console (Authentication → Sign-in method → Email/Password).'
+        );
+        return;
+      }
+
+      if (msg.includes('email-already-in-use')) {
+        setAuthError(
+          'Er bestaat al een account met dit e-mailadres. Kies hierboven "Inloggen" om in te loggen.'
+        );
+        return;
+      }
+
+      if (msg.includes('weak-password')) {
+        setAuthError('Kies een sterker wachtwoord van minimaal 6 tekens.');
+        return;
+      }
+
+      if (msg.includes('invalid-email')) {
+        setAuthError('Het ingevulde e-mailadres is niet geldig.');
+        return;
+      }
+
+      if (msg.includes('too-many-requests')) {
+        setAuthError(
+          'Te veel pogingen achter elkaar. Wacht een paar minuten of klik op "Wachtwoord vergeten?".'
+        );
+        return;
+      }
+
+      if (
+        msg.includes('user-not-found') ||
+        msg.includes('wrong-password') ||
+        msg.includes('invalid-credential')
+      ) {
+        registerFailedAttempt(
+          'Onjuist e-mailadres of wachtwoord. Heb je nog geen account? Kies dan "Account aanmaken".'
+        );
+        return;
+      }
+
+      registerFailedAttempt('Inloggen mislukt. Controleer je gegevens en probeer het opnieuw.');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    setAuthError(null);
+    setResetSuccessMessage(null);
+
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setAuthError('Vul eerst je e-mailadres in het veld hierboven in om je wachtwoord te herstellen.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+      setResetSuccessMessage(
+        `Er is een e-mail met een herstellink verstuurd naar ${cleanEmail}. Controleer ook je ongewenste e-mail (spam).`
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('user-not-found')) {
+        setAuthError('Er is geen account gevonden met dit e-mailadres.');
+      } else {
+        setAuthError('Kon geen herstelmail versturen. Controleer het ingevulde e-mailadres.');
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
   const handleFirebaseGoogleSignIn = async () => {
     if (isLocked) {
       setAuthError(
@@ -342,61 +423,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     }
 
     setAuthError(null);
-
-    // Als we op een eigen server-IP of extern domein draaien (niet in Firebase authorizedDomains)
-    // én niet al in het relay-venster zitten, open dan direct het Google Auth Relay venster!
-    if (!isAuthRelay && !isDirectlyAuthorizedFirebaseHost(window.location.hostname)) {
-      const relayUrl = `${AUTHORIZED_AUTH_RELAY_URL}/?google_auth_relay=1&target_origin=${encodeURIComponent(window.location.origin)}`;
-      const width = 500;
-      const height = 640;
-      const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
-      const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
-
-      const popup = window.open(
-        relayUrl,
-        'bierlog_google_auth_relay',
-        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-      );
-
-      if (!popup) {
-        // Indien pop-ups geblokkeerd zijn (bijv. mobiele browser), navigeer direct
-        window.location.href = relayUrl;
-        return;
-      }
-
-      relayPopupRef.current = popup;
-      setIsSigningIn(true);
-
-      const pollTimer = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(pollTimer);
-          setIsSigningIn(false);
-        }
-      }, 600);
-      return;
-    }
-
+    setResetSuccessMessage(null);
     setIsSigningIn(true);
 
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
-
-      if (isAuthRelay) {
-        await sendTokenBackToCaller(user);
-        return;
-      }
-
       const idToken = await user.getIdToken();
 
-      // Geslaagd: reset inlogpogingen
       clearRateLimit();
       setRateLimit({ attempts: 0, lockedUntil: null });
 
       const fallbackAccount: UserAccount = {
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || 'Bierliefhebber',
-        email: user.email || 'google-user@bierlog.nl',
+        email: user.email || 'gebruiker@bierlog.nl',
         avatarUrl: user.photoURL || undefined,
         createdAt: new Date().toISOString(),
       };
@@ -411,48 +452,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         return;
       }
 
-      const newAttempts = rateLimit.attempts + 1;
-      let newLockedUntil: number | null = null;
-
-      if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
-        newLockedUntil = Date.now() + LOCKOUT_DURATION_MS;
-        const newLimit: RateLimitData = { attempts: newAttempts, lockedUntil: newLockedUntil };
-        saveRateLimit(newLimit);
-        setRateLimit(newLimit);
-        setSecondsRemaining(Math.ceil(LOCKOUT_DURATION_MS / 1000));
+      if (msg.includes('unauthorized-domain')) {
         setAuthError(
-          `Maximaal aantal inlogpogingen (${MAX_LOGIN_ATTEMPTS}) bereikt! Je account is voor 15 minuten tijdelijk vergrendeld ter beveiliging.`
+          `Dit adres (${window.location.hostname}) staat nog niet bij Geautoriseerde domeinen in jouw Firebase Console (Authentication → Settings → Authorized domains). Gebruik hierboven E-mail & Wachtwoord of voeg het adres toe.`
         );
-      } else {
-        const newLimit: RateLimitData = { attempts: newAttempts, lockedUntil: null };
-        saveRateLimit(newLimit);
-        setRateLimit(newLimit);
+        return;
+      }
 
-        const remaining = MAX_LOGIN_ATTEMPTS - newAttempts;
-        if (msg.includes('popup-blocked')) {
-          setAuthError(
-            `Pop-up geblokkeerd door browser. Sta pop-ups toe. Nog ${remaining} inlogpoging(en) over.`
-          );
-        } else {
-          setAuthError(
-            `Google login mislukt. Poging ${newAttempts} van ${MAX_LOGIN_ATTEMPTS}. Nog ${remaining} poging(en) over.`
-          );
-        }
+      if (msg.includes('operation-not-allowed')) {
+        setAuthError(
+          'Google Sign-In staat nog niet aan in jouw Firebase Console (Authentication → Sign-in method → Google).'
+        );
+        return;
+      }
+
+      if (msg.includes('popup-blocked')) {
+        registerFailedAttempt('Pop-up geblokkeerd door browser. Sta pop-ups toe.');
+      } else {
+        registerFailedAttempt('Google login mislukt.');
       }
     } finally {
       setIsSigningIn(false);
     }
   };
-
-  // Indien al ingelogd op het relay-domein, geef ook een 1-klik knop om direct door te gaan
-  const [relayCurrentUser, setRelayCurrentUser] = useState<any>(null);
-  useEffect(() => {
-    if (!isAuthRelay) return;
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setRelayCurrentUser(u);
-    });
-    return () => unsub();
-  }, [isAuthRelay]);
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans selection:bg-amber-500 selection:text-zinc-950">
@@ -474,7 +496,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             </p>
           </div>
           <p className="text-sm text-zinc-400 max-w-xs mx-auto leading-relaxed">
-            Veilig inloggen via jouw geverifieerde Google-account.
+            Log veilig in met je e-mailadres of je gekoppelde account.
           </p>
         </div>
 
@@ -483,12 +505,48 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
             <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5 text-amber-400" />
-              Alleen Google Login
+              Account Toegang
             </span>
             <span className="text-[11px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
               Beveiligd
             </span>
+          </div>
+
+          {/* Mode Toggle: Inloggen vs Account aanmaken */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-zinc-950 border border-zinc-800/90">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('login');
+                setAuthError(null);
+                setResetSuccessMessage(null);
+              }}
+              className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                authMode === 'login'
+                  ? 'bg-amber-500 text-zinc-950 shadow-md'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Inloggen</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('register');
+                setAuthError(null);
+                setResetSuccessMessage(null);
+              }}
+              className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                authMode === 'register'
+                  ? 'bg-amber-500 text-zinc-950 shadow-md'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Account aanmaken</span>
+            </button>
           </div>
 
           {/* Security & Attempt Status Indicator */}
@@ -550,46 +608,142 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             </div>
           )}
 
+          {/* Password Reset Success Message */}
+          {resetSuccessMessage && (
+            <div className="p-3.5 rounded-2xl border bg-emerald-500/10 border-emerald-500/30 text-emerald-200 text-xs flex items-start gap-2.5 leading-relaxed">
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+              <span>{resetSuccessMessage}</span>
+            </div>
+          )}
+
+          {/* Firebase Email & Password Form */}
+          <form onSubmit={handleFirebaseEmailSubmit} className="space-y-3.5">
+            {authMode === 'register' && (
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider">
+                  Weergavenaam
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Jouw naam"
+                    disabled={isSigningIn || isLocked}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500 transition-colors"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider">
+                E-mailadres
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="naam@voorbeeld.nl"
+                  disabled={isSigningIn || isLocked}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider">
+                  Wachtwoord
+                </label>
+                {authMode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={handlePasswordReset}
+                    disabled={isSigningIn || isLocked}
+                    className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 hover:underline cursor-pointer"
+                  >
+                    Wachtwoord vergeten?
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  disabled={isSigningIn || isLocked}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSigningIn || isLocked}
+              className={`w-full flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl font-extrabold text-sm shadow-lg transition-all ${
+                isLocked
+                  ? 'bg-zinc-800 text-zinc-500 border border-zinc-700/60 cursor-not-allowed opacity-60'
+                  : 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-zinc-950 cursor-pointer shadow-amber-500/20'
+              }`}
+            >
+              {authMode === 'register' ? (
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  <span>{isSigningIn ? 'Account aanmaken...' : 'Account aanmaken'}</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" />
+                  <span>{isSigningIn ? 'Bezig met inloggen...' : 'Inloggen met e-mail'}</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-zinc-800" />
+            <span className="flex-shrink mx-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+              Of
+            </span>
+            <div className="flex-grow border-t border-zinc-800" />
+          </div>
+
           {STANDALONE_GOOGLE_CLIENT_ID &&
             STANDALONE_GOOGLE_CLIENT_ID !== 'YOUR_GOOGLE_OAUTH_CLIENT_ID' && (
               <div className="flex justify-center pt-1" ref={googleGsiButtonRef} />
             )}
 
-          {isAuthRelay && relayCurrentUser && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsSigningIn(true);
-                sendTokenBackToCaller(relayCurrentUser).finally(() => setIsSigningIn(false));
-              }}
-              disabled={isSigningIn}
-              className="w-full flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl font-bold text-sm bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-zinc-950 shadow-lg transition-all cursor-pointer"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Doorgaan met gekoppeld Google-account</span>
-            </button>
-          )}
-
           {/* Official Google Sign-In Button */}
-          <div className="space-y-2 pt-1">
+          <div className="space-y-2">
             <button
               type="button"
               onClick={handleFirebaseGoogleSignIn}
               disabled={isSigningIn || isLocked}
-              className={`w-full flex items-center justify-center gap-3 px-5 py-3.5 rounded-2xl font-bold text-sm shadow-lg transition-all ${
+              className={`w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl font-bold text-sm shadow-lg transition-all ${
                 isLocked
                   ? 'bg-zinc-800 text-zinc-500 border border-zinc-700/60 cursor-not-allowed opacity-60'
-                  : 'bg-white hover:bg-zinc-100 active:bg-zinc-200 text-zinc-900 cursor-pointer shadow-amber-500/5 hover:shadow-amber-500/10 hover:scale-[1.01]'
+                  : 'bg-white hover:bg-zinc-100 active:bg-zinc-200 text-zinc-900 cursor-pointer shadow-amber-500/5 hover:shadow-amber-500/10'
               }`}
             >
               {isLocked ? (
                 <>
-                  <Lock className="w-5 h-5 text-zinc-500" />
+                  <Lock className="w-4 h-4 text-zinc-500" />
                   <span>Vergrendeld ({formatCountdown(secondsRemaining)})</span>
                 </>
               ) : (
                 <>
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -607,21 +761,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                       d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                     />
                   </svg>
-                  <span>
-                    {isSigningIn
-                      ? 'Inloggen bij Google...'
-                      : isAuthRelay && relayCurrentUser
-                      ? 'Ander Google-account kiezen'
-                      : 'Inloggen met Google'}
-                  </span>
+                  <span>Inloggen met Google</span>
                 </>
               )}
             </button>
-
-            <p className="text-[11px] text-zinc-500 text-center pt-1">
-              Handmatige e-mailinvoer is uitgeschakeld. Alleen geverifieerde Google-authenticatie is
-              toegestaan.
-            </p>
           </div>
 
           {/* Privacy & data scoping guarantee */}
@@ -632,7 +775,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             </div>
             <p className="leading-relaxed text-zinc-400">
               Al jouw bieren, cijfers, foto&apos;s en zelfgemaakte categorieën worden strikt
-              gekoppeld aan jouw unieke Google-account en zijn nooit zichtbaar voor anderen.
+              gekoppeld aan jouw persoonlijke account en zijn nooit zichtbaar voor anderen.
             </p>
           </div>
         </div>

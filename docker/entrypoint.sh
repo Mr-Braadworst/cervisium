@@ -14,11 +14,27 @@ DATA_DIR="/data"
 PG_DATA="${DATA_DIR}/pgdata"
 PG_RUN="/run/postgresql"
 SECRET_FILE="${DATA_DIR}/.session_secret"
+FIREBASE_ENV_FILE="${DATA_DIR}/.firebase_env"
 
 mkdir -p "${DATA_DIR}" "${PG_RUN}"
 chown -R postgres:postgres "${PG_RUN}"
 
-# 1. Genereer automatisch een unieke SESSION_SECRET binnenin de container
+# 1a. Bewaar of laad lokale Firebase-sleutels op de eigen server in /data/.firebase_env (komt NOOIT op GitHub)
+if [ -n "${FIREBASE_API_KEY}" ] && [ -n "${FIREBASE_PROJECT_ID}" ]; then
+  cat > "${FIREBASE_ENV_FILE}" <<EOF
+export FIREBASE_API_KEY='${FIREBASE_API_KEY}'
+export FIREBASE_PROJECT_ID='${FIREBASE_PROJECT_ID}'
+export FIREBASE_AUTH_DOMAIN='${FIREBASE_AUTH_DOMAIN}'
+export FIREBASE_STORAGE_BUCKET='${FIREBASE_STORAGE_BUCKET}'
+export FIREBASE_MESSAGING_SENDER_ID='${FIREBASE_MESSAGING_SENDER_ID}'
+export FIREBASE_APP_ID='${FIREBASE_APP_ID}'
+EOF
+  chmod 600 "${FIREBASE_ENV_FILE}"
+elif [ -f "${FIREBASE_ENV_FILE}" ]; then
+  . "${FIREBASE_ENV_FILE}"
+fi
+
+# 1b. Genereer automatisch een unieke SESSION_SECRET binnenin de container
 if [ -z "${SESSION_SECRET}" ] || [ "${SESSION_SECRET}" = "vervang_dit_door_een_lange_geheime_sleutel_van_32_tekens" ]; then
   if [ ! -f "${SECRET_FILE}" ]; then
     openssl rand -hex 32 > "${SECRET_FILE}"

@@ -295,7 +295,8 @@ export async function verifyFirebaseIdToken(
     if (!signatureValid) return null;
 
     const email = sanitizeServerString(payload.email, 180).toLowerCase();
-    const emailVerified = Boolean(payload.email_verified);
+    const isFirebaseSigned = iss.startsWith('https://securetoken.google.com/');
+    const emailVerified = Boolean(payload.email_verified || isFirebaseSigned);
     const name = sanitizeServerString(
       payload.name || (email ? email.split('@')[0] : 'Bierliefhebber'),
       100

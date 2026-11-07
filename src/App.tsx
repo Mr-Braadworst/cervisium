@@ -146,7 +146,7 @@ export default function App() {
       if (fbUser) {
         setFirebaseUid(fbUser.uid);
         const stored = getActiveUser();
-        const googleName =
+        const defaultName =
           (fbUser.displayName && fbUser.displayName.trim()) ||
           fbUser.email?.split('@')[0] ||
           'Bierliefhebber';
@@ -156,8 +156,8 @@ export default function App() {
           name:
             stored && stored.id === fbUser.uid && stored.name
               ? stored.name
-              : googleName,
-          googleName,
+              : defaultName,
+          googleName: defaultName,
           email: fbUser.email || 'gebruiker@bierlog.nl',
           avatarUrl: fbUser.photoURL || undefined,
           createdAt: stored?.createdAt || new Date().toISOString(),
@@ -167,12 +167,46 @@ export default function App() {
         setActiveUserState(initialAccount);
         reloadDataForUser(initialAccount);
 
-        const syncedAccount = await fetchAndSyncGoogleUserProfile(fbUser, stored);
-        loginUser(syncedAccount);
-        setAuthenticatedUser(syncedAccount);
-        setActiveUserState((prev) =>
-          !prev || prev.id === syncedAccount.id ? syncedAccount : prev
-        );
+        // Synchroniseer Firebase ID-token ook met de server-sessie en haal opgeslagen server-data op
+        try {
+          const idToken = await fbUser.getIdToken();
+          const res = await fetch('/api/auth/google', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credential: idToken }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.records) {
+              if (Array.isArray(data.records.categories) && data.records.categories.length > 0) {
+                saveCategories(fbUser.uid, data.records.categories);
+              }
+              if (Array.isArray(data.records.beers) && data.records.beers.length > 0) {
+                saveBeers(fbUser.uid, data.records.beers);
+              }
+              if (Array.isArray(data.records.tastings) && data.records.tastings.length > 0) {
+                saveTastings(fbUser.uid, data.records.tastings);
+              }
+              if (Array.isArray(data.records.glasses) && data.records.glasses.length > 0) {
+                saveGlasses(fbUser.uid, data.records.glasses);
+              }
+              reloadDataForUser(initialAccount);
+            }
+          }
+        } catch {
+          // Negeer als server-sync tijdelijk niet bereikbaar is
+        }
+
+        const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
+        if (env.VITE_USE_FIRESTORE !== 'false') {
+          const syncedAccount = await fetchAndSyncGoogleUserProfile(fbUser, stored);
+          loginUser(syncedAccount);
+          setAuthenticatedUser(syncedAccount);
+          setActiveUserState((prev) =>
+            !prev || prev.id === syncedAccount.id ? syncedAccount : prev
+          );
+        }
       } else {
         setFirebaseUid(null);
         // Controleer of er een actieve Docker PostgreSQL server-sessie (HttpOnly cookie) bestaat
@@ -815,12 +849,8 @@ export default function App() {
     }
   };
 
-  const isGoogleAuthRelay =
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('google_auth_relay') === '1';
-
-  // If user is not logged in (or window is acting as Google Auth Relay), present Google Sign-In Screen
-  if (!activeUser || isGoogleAuthRelay) {
+  // If user is not logged in, present Google Sign-In Screen
+  if (!activeUser) {
     return (
       <LoginScreen
         onLogin={handleLogin}
