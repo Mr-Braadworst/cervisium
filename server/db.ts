@@ -142,6 +142,7 @@ class CentralDatabaseClient {
 
         this.initialized = true;
         await this.consolidateDuplicateDatabaseUsers();
+        await this.repairCrossAccountContamination();
         return;
       } catch (err) {
         console.warn(
@@ -155,19 +156,161 @@ class CentralDatabaseClient {
   }
 
   /**
-   * Voegt eventuele dubbele accounts (bijv. een oud 'usr_...' account en een nieuw Firebase UID account
-   * van dezelfde gebruiker/eigenaar) automatisch samen inclusief al hun bieren, proefnotities en glazen.
+   * Verwijdert automatisch bieren, proefnotities, glazen en ongebruikte categorieën
+   * uit het admin-account als diezelfde record-ID's daadwerkelijk toebehoren aan een andere gebruiker
+   * (herstelt eerdere cross-account samenvoeging vanuit localStorage).
+   */
+  public async repairCrossAccountContamination(): Promise<void> {
+    if (!this.pool) {
+      const adminUids: string[] = [];
+      const nonAdminUids: string[] = [];
+      for (const [uid, u] of this.memoryUsers.entries()) {
+        if (u.role === 'admin' || isVerifiedAdminEmail(u.email, true)) {
+          adminUids.push(uid);
+        } else {
+          nonAdminUids.push(uid);
+        }
+      }
+      if (adminUids.length === 0 || nonAdminUids.length === 0) return;
+
+      const foreignBeerIds = new Set<string>();
+      const foreignTastingIds = new Set<string>();
+      const foreignGlassIds = new Set<string>();
+      const foreignCatIds = new Set<string>();
+
+      for (const otherUid of nonAdminUids) {
+        const b = this.memoryCollections.get(otherUid);
+        if (!b) continue;
+        b.beers.forEach((_v, k) => foreignBeerIds.add(k));
+        b.tastings.forEach((_v, k) => foreignTastingIds.add(k));
+        b.glasses.forEach((_v, k) => foreignGlassIds.add(k));
+        b.categories.forEach((_v, k) => foreignCatIds.add(k));
+      }
+
+      for (const adminUid of adminUids) {
+        const adminBucket = this.memoryCollections.get(adminUid);
+        if (!adminBucket) continue;
+        foreignBeerIds.forEach((id) => adminBucket.beers.delete(id));
+        foreignTastingIds.forEach((id) => adminBucket.tastings.delete(id));
+        foreignGlassIds.forEach((id) => adminBucket.glasses.delete(id));
+        adminBucket.tastings.forEach((t, tid) => {
+          if (typeof t.beerId === 'string' && foreignBeerIds.has(t.beerId)) {
+            adminBucket.tastings.delete(tid);
+          }
+        });
+        const usedAdminCatIds = new Set<string>();
+        adminBucket.beers.forEach((b) => {
+          if (typeof b.categoryId === 'string') usedAdminCatIds.add(b.categoryId);
+        });
+        foreignCatIds.forEach((cid) => {
+          if (!usedAdminCatIds.has(cid)) {
+            adminBucket.categories.delete(cid);
+          }
+        });
+      }
+      return;
+    }
+
+    try {
+      // 1. Verwijder bieren, glazen en sessies uit het admin-account die óók onder een andere gebruiker staan
+      await this.pool.query(`
+        DELETE FROM user_records AS admin_rec
+        USING user_records AS other_rec, users AS u_admin
+        WHERE admin_rec.collection_type IN ('beers', 'glasses', 'sessions')
+          AND admin_rec.collection_type = other_rec.collection_type
+          AND admin_rec.id = other_rec.id
+          AND admin_rec.user_id <> other_rec.user_id
+          AND admin_rec.user_id = u_admin.id
+          AND u_admin.role = 'admin';
+      `);
+
+      // 2. Verwijder proefnotities uit het admin-account die óók onder een andere gebruiker staan
+      //    óf verwijzen naar een bier van een andere gebruiker
+      await this.pool.query(`
+        DELETE FROM user_records AS admin_tast
+        USING user_records AS other_rec, users AS u_admin
+        WHERE admin_tast.collection_type = 'tastings'
+          AND (
+            (other_rec.collection_type = 'tastings' AND admin_tast.id = other_rec.id)
+            OR (other_rec.collection_type = 'beers' AND (admin_tast.payload->>'beerId') = other_rec.id)
+          )
+          AND admin_tast.user_id <> other_rec.user_id
+          AND admin_tast.user_id = u_admin.id
+          AND u_admin.role = 'admin';
+      `);
+
+      // 3. Verwijder categorieën uit het admin-account die bij een andere gebruiker horen
+      //    én niet gebruikt worden door een eigen bier van de admin
+      await this.pool.query(`
+        DELETE FROM user_records AS admin_cat
+        USING user_records AS other_cat, users AS u_admin
+        WHERE admin_cat.collection_type = 'categories'
+          AND other_cat.collection_type = 'categories'
+          AND admin_cat.id = other_cat.id
+          AND admin_cat.user_id <> other_cat.user_id
+          AND admin_cat.user_id = u_admin.id
+          AND u_admin.role = 'admin'
+          AND NOT EXISTS (
+            SELECT 1 FROM user_records AS own_beer
+            WHERE own_beer.user_id = admin_cat.user_id
+              AND own_beer.collection_type = 'beers'
+              AND (own_beer.payload->>'categoryId') = admin_cat.id
+          );
+      `);
+    } catch (err) {
+      console.warn('[Database] Herstel cross-account isolatie melding:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  /**
+   * Geeft alle record-ID's (bieren, proefnotities, glazen) terug die aan ANDERE gebruikers toebehoren,
+   * zodat de browser-cache (localStorage) van een ingelogde gebruiker direct vervuilde records kan wissen.
+   */
+  public async getForeignRecordIds(userId: string): Promise<string[]> {
+    await this.init();
+    if (!isValidServerId(userId)) return [];
+
+    if (this.pool) {
+      try {
+        const res = await this.pool.query(
+          `
+          SELECT DISTINCT id
+          FROM user_records
+          WHERE user_id <> $1
+            AND collection_type IN ('beers', 'tastings', 'glasses')
+          `,
+          [userId]
+        );
+        return res.rows.map((r) => String(r.id));
+      } catch {
+        return [];
+      }
+    }
+
+    const out = new Set<string>();
+    for (const [uid, bucket] of this.memoryCollections.entries()) {
+      if (uid === userId) continue;
+      bucket.beers.forEach((_v, k) => out.add(k));
+      bucket.tastings.forEach((_v, k) => out.add(k));
+      bucket.glasses.forEach((_v, k) => out.add(k));
+    }
+    return Array.from(out);
+  }
+
+  /**
+   * Voegt eventuele dubbele accounts met exact hetzelfde geverifieerde e-mailadres
+   * (bijv. een oud 'usr_...' account en een nieuw Firebase UID account van dezelfde persoon)
+   * samen. Voegt NOOIT verschillende gebruikers of accounts zonder e-mailadres samen.
    */
   public async consolidateDuplicateDatabaseUsers(): Promise<void> {
     if (!this.pool) {
-      // Memory store deduplicatie op e-mailadres
+      // Memory store deduplicatie uitsluitend op exact hetzelfde niet-lege e-mailadres
       const byEmail = new Map<string, string>();
       for (const [uid, u] of Array.from(this.memoryUsers.entries())) {
         const cleanEmail = u.email.trim().toLowerCase();
         if (!isPlaceholderEmailValue(cleanEmail)) {
           const existingUid = byEmail.get(cleanEmail);
           if (existingUid && existingUid !== uid) {
-            // Merge collecties naar de laatst actieve UID
             const keepUid = uid.startsWith('usr_') ? existingUid : uid;
             const dropUid = keepUid === uid ? existingUid : uid;
             this.mergeMemoryUserInto(dropUid, keepUid);
@@ -186,13 +329,9 @@ class CentralDatabaseClient {
       if (rows.length <= 1) return;
 
       const byEmail = new Map<string, any>();
-      const adminRows: any[] = [];
 
       for (const row of rows) {
         const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
-        if (row.role === 'admin' || isVerifiedAdminEmail(email, true)) {
-          adminRows.push(row);
-        }
         if (!isPlaceholderEmailValue(email)) {
           const prev = byEmail.get(email);
           if (prev && prev.id !== row.id) {
@@ -202,20 +341,6 @@ class CentralDatabaseClient {
             byEmail.set(email, keepRow);
           } else {
             byEmail.set(email, row);
-          }
-        }
-      }
-
-      // Als er meerdere admin-rijen zijn (bijv. 1 met echt e-mailadres en 1 oude zonder e-mailadres), voeg ze samen
-      if (adminRows.length > 1) {
-        const primaryAdmin =
-          adminRows.find((r) => !String(r.id).startsWith('usr_') && !isPlaceholderEmailValue(r.email)) ||
-          adminRows.find((r) => !isPlaceholderEmailValue(r.email)) ||
-          adminRows[0];
-
-        for (const other of adminRows) {
-          if (other.id !== primaryAdmin.id) {
-            await this.mergePostgresUserInto(other.id, primaryAdmin.id);
           }
         }
       }
@@ -579,6 +704,7 @@ class CentralDatabaseClient {
     if (!isValidServerId(userId)) {
       return { categories: [], beers: [], tastings: [], glasses: [], pubDeals: [], sessions: [] };
     }
+    await this.repairCrossAccountContamination();
 
     if (this.pool) {
       const res = await this.pool.query(
@@ -615,6 +741,7 @@ class CentralDatabaseClient {
   public async exportAllData(exportedByEmail: string): Promise<AdminFullExportPayload> {
     await this.init();
     await this.consolidateDuplicateDatabaseUsers();
+    await this.repairCrossAccountContamination();
     const outUsers: AdminFullExportPayload['users'] = [];
 
     if (this.pool) {
@@ -628,7 +755,7 @@ class CentralDatabaseClient {
             name: row.name,
             googleName: row.google_name || undefined,
             role: row.role === 'admin' ? 'admin' : 'user',
-            avatarUrl: row.avatar_url || undefined,
+            avatarUrl: row.avatarUrl || row.avatar_url || undefined,
             createdAt: new Date(row.created_at).toISOString(),
             lastActiveAt: row.last_active_at
               ? new Date(row.last_active_at).toISOString()
@@ -679,7 +806,7 @@ class CentralDatabaseClient {
 
   /**
    * Importeert een volledige Admin JSON-export in de centrale database.
-   * Valideert alle records en slaat duplicaten over op basis van e-mailadres of ID.
+   * Valideert alle records, houdt gebruikers strikt gescheiden en herstelt eventuele cross-account contaminatie.
    */
   public async importAllData(
     rawPayload: unknown,
@@ -736,8 +863,8 @@ class CentralDatabaseClient {
       const rawEmail = sanitizeServerString(userObj.email, 180).toLowerCase();
       const email = isPlaceholderEmailValue(rawEmail) ? '' : rawEmail;
       const name = sanitizeServerString(userObj.name, 100, 'Bierliefhebber');
-      const role: 'admin' | 'user' =
-        userObj.role === 'admin' || isVerifiedAdminEmail(email, true) ? 'admin' : 'user';
+      // Geef uitsluitend de geverifieerde eigenaar de admin-rol bij import
+      const role: 'admin' | 'user' = isVerifiedAdminEmail(email, true) ? 'admin' : 'user';
 
       const matchedExistingUid = email ? existingEmailToUid.get(email) : undefined;
       const uid = matchedExistingUid || candidateUid;
@@ -806,6 +933,9 @@ class CentralDatabaseClient {
       }
     }
 
+    // Zorg na import direct dat bieren van andere gebruikers nooit onder het admin-account staan
+    await this.repairCrossAccountContamination();
+
     return summary;
   }
 
@@ -857,7 +987,8 @@ class CentralDatabaseClient {
 
   /**
    * Synchroniseert de collecties van een ingelogde gebruiker rechtstreeks naar de server-database.
-   * Zorgt er eerst altijd voor dat de gebruiker in `users` bestaat zodat foreign keys nooit falen.
+   * Weigert elk record-ID dat al aan een andere gebruiker in de database toebehoort, zodat een
+   * vervuilde browser-localStorage nooit bieren van andere gebruikers op dit account kan schrijven.
    */
   public async syncUserCollections(
     userId: string,
@@ -889,6 +1020,9 @@ class CentralDatabaseClient {
     });
     const effectiveUserId = upsertedUser.id;
 
+    // Haal alle record-ID's op die van ANDERE gebruikers zijn zodat die nooit onder deze gebruiker worden opgeslagen
+    const foreignIds = new Set(await this.getForeignRecordIds(effectiveUserId));
+
     const keys: Array<'categories' | 'beers' | 'tastings' | 'glasses' | 'pubDeals' | 'sessions'> = [
       'categories',
       'beers',
@@ -915,9 +1049,25 @@ class CentralDatabaseClient {
         if (!rawItem || typeof rawItem !== 'object') continue;
         const obj = rawItem as Record<string, unknown>;
         const recId = isValidServerId(obj.id) ? obj.id : sanitizeServerId(undefined, colType);
+        // Sla over als dit bier, glas of deze proefnotitie van een andere gebruiker is
+        if (
+          (colType === 'beers' || colType === 'tastings' || colType === 'glasses') &&
+          foreignIds.has(recId)
+        ) {
+          continue;
+        }
+        if (
+          colType === 'tastings' &&
+          typeof obj.beerId === 'string' &&
+          foreignIds.has(obj.beerId)
+        ) {
+          continue;
+        }
         await this.insertRecordIfNotExists(effectiveUserId, colType, recId, obj, false);
       }
     }
+
+    await this.repairCrossAccountContamination();
   }
 }
 

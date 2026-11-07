@@ -260,28 +260,36 @@ export default function App() {
     const unsubCategories = subscribeToCategories(activeUser.id, (remoteCats) => {
       if (remoteCats.length > 0 || isImpersonating) {
         setCategories(remoteCats);
-        saveCategories(activeUser.id, remoteCats);
+        if (!isImpersonating) {
+          saveCategories(activeUser.id, remoteCats);
+        }
       }
     });
 
     const unsubBeers = subscribeToBeers(activeUser.id, (remoteBeers) => {
       if (remoteBeers.length > 0 || isImpersonating) {
         setBeers(remoteBeers);
-        saveBeers(activeUser.id, remoteBeers);
+        if (!isImpersonating) {
+          saveBeers(activeUser.id, remoteBeers);
+        }
       }
     });
 
     const unsubTastings = subscribeToTastings(activeUser.id, (remoteTastings) => {
       if (remoteTastings.length > 0 || isImpersonating) {
         setTastings(remoteTastings);
-        saveTastings(activeUser.id, remoteTastings);
+        if (!isImpersonating) {
+          saveTastings(activeUser.id, remoteTastings);
+        }
       }
     });
 
     const unsubGlasses = subscribeToGlasses(activeUser.id, (remoteGlasses) => {
       if (remoteGlasses.length > 0 || isImpersonating) {
         setGlasses(remoteGlasses);
-        saveGlasses(activeUser.id, remoteGlasses);
+        if (!isImpersonating) {
+          saveGlasses(activeUser.id, remoteGlasses);
+        }
       }
     });
 

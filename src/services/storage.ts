@@ -140,28 +140,14 @@ export function consolidateLocalAccountsForUser(targetUser: UserAccount): void {
           }))
       : [];
 
-    // Zoek alle andere UIDs die óf hetzelfde e-mailadres hebben óf wees-sleutels zijn van dit apparaat
+    // Voeg UITSLUITEND lokale accounts samen die exact hetzelfde geverifieerde e-mailadres hebben
     const uidsToMerge = new Set<string>();
-    const otherDistinctEmailUids = new Set<string>();
 
     for (const u of existingUsers) {
       if (u.id === targetId) continue;
       const uEmail = !isPlaceholderUserEmail(u.email) ? u.email.trim().toLowerCase() : '';
-      if (targetEmail && uEmail === targetEmail) {
+      if (targetEmail && uEmail && uEmail === targetEmail) {
         uidsToMerge.add(u.id);
-      } else if (!uEmail) {
-        uidsToMerge.add(u.id);
-      } else {
-        otherDistinctEmailUids.add(u.id);
-      }
-    }
-
-    // Controleer ook localStorage sleutels (bierlog_beers_<uid> etc.) die niet aan een ander e-mailadres toebehoren
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i) || '';
-      const m = k.match(/^bierlog_(?:beers|categories|glasses|tastings|sessions|settings)_([a-zA-Z0-9_-]+)$/);
-      if (m && m[1] && m[1] !== targetId && !otherDistinctEmailUids.has(m[1])) {
-        uidsToMerge.add(m[1]);
       }
     }
 
@@ -716,13 +702,46 @@ export function importUserData(
     }
 
     const MAX_ITEMS = 2500;
-    const rawCategories = Array.isArray(data.categories) ? data.categories.slice(0, MAX_ITEMS) : [];
-    const rawBeers = Array.isArray(data.beers) ? data.beers.slice(0, MAX_ITEMS) : [];
-    const rawTastings = Array.isArray(data.tastings) ? data.tastings.slice(0, MAX_ITEMS) : [];
-    const rawGlasses = Array.isArray(data.glasses) ? data.glasses.slice(0, MAX_ITEMS) : [];
-    const rawUploadedImages = Array.isArray(data.uploadedImages)
-      ? data.uploadedImages.slice(0, MAX_ITEMS * 3)
+    let sourceContainer: Record<string, unknown> = data;
+    if (Array.isArray(data.users) && data.users.length > 0) {
+      const activeUser = getActiveUser();
+      const targetEmail = activeUser?.email ? activeUser.email.trim().toLowerCase() : '';
+      const matchedEntry = (data.users as unknown[]).find((entry) => {
+        if (!entry || typeof entry !== 'object') return false;
+        const e = entry as Record<string, unknown>;
+        const uObj = e.user && typeof e.user === 'object' ? (e.user as Record<string, unknown>) : e;
+        const entryId = String(uObj.id || uObj.uid || '');
+        const entryEmail = String(uObj.email || '').trim().toLowerCase();
+        return entryId === userId || (Boolean(targetEmail) && entryEmail === targetEmail);
+      }) as Record<string, unknown> | undefined;
+
+      if (!matchedEntry) {
+        return {
+          success: false,
+          message:
+            'Dit bestand is een multi-user Admin-export en bevat geen gegevens voor het huidige account. Gebruik het Beheerderspaneel om een volledige systeemback-up voor alle gebruikers te importeren.',
+        };
+      }
+      sourceContainer = matchedEntry;
+    }
+
+    const rawCategories = Array.isArray(sourceContainer.categories)
+      ? sourceContainer.categories.slice(0, MAX_ITEMS)
       : [];
+    const rawBeers = Array.isArray(sourceContainer.beers)
+      ? sourceContainer.beers.slice(0, MAX_ITEMS)
+      : [];
+    const rawTastings = Array.isArray(sourceContainer.tastings)
+      ? sourceContainer.tastings.slice(0, MAX_ITEMS)
+      : [];
+    const rawGlasses = Array.isArray(sourceContainer.glasses)
+      ? sourceContainer.glasses.slice(0, MAX_ITEMS)
+      : [];
+    const rawUploadedImages = Array.isArray(sourceContainer.uploadedImages)
+      ? sourceContainer.uploadedImages.slice(0, MAX_ITEMS * 3)
+      : Array.isArray(data.uploadedImages)
+        ? data.uploadedImages.slice(0, MAX_ITEMS * 3)
+        : [];
 
     const categories = deduplicateById(
       rawCategories
@@ -1164,7 +1183,22 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
           tastings?: unknown[];
           glasses?: unknown[];
         };
+        foreignRecordIds?: string[];
       };
+
+      const foreignSet = new Set<string>(
+        Array.isArray(data.foreignRecordIds)
+          ? data.foreignRecordIds.filter((id): id is string => typeof id === 'string')
+          : []
+      );
+
+      if (foreignSet.size > 0) {
+        localBeers = localBeers.filter((b) => !foreignSet.has(b.id));
+        localTastings = localTastings.filter(
+          (t) => !foreignSet.has(t.id) && !foreignSet.has(t.beerId)
+        );
+        localGlasses = localGlasses.filter((g) => !foreignSet.has(g.id));
+      }
 
       if (data.records) {
         const serverCats = Array.isArray(data.records.categories)
@@ -1175,24 +1209,38 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
         const serverBeers = Array.isArray(data.records.beers)
           ? data.records.beers
               .map((b) => sanitizeImportedBeer(b, userId))
-              .filter((b): b is Beer => b !== null)
+              .filter((b): b is Beer => b !== null && !foreignSet.has(b.id))
           : [];
         const serverTastings = Array.isArray(data.records.tastings)
           ? data.records.tastings
               .map((t) => sanitizeImportedTasting(t))
-              .filter((t): t is Tasting => t !== null)
+              .filter(
+                (t): t is Tasting =>
+                  t !== null && !foreignSet.has(t.id) && !foreignSet.has(t.beerId)
+              )
           : [];
         const serverGlasses = Array.isArray(data.records.glasses)
           ? data.records.glasses
               .map((g) => sanitizeImportedGlass(g, userId))
-              .filter((g): g is BeerGlass => g !== null)
+              .filter((g): g is BeerGlass => g !== null && !foreignSet.has(g.id))
           : [];
 
         // Merge server + lokaal (en behoud altijd foto's indien aanwezig)
-        localCats = deduplicateById([...serverCats, ...localCats]);
         localBeers = deduplicateById([...serverBeers, ...localBeers]);
         localTastings = deduplicateById([...serverTastings, ...localTastings]);
         localGlasses = deduplicateById([...serverGlasses, ...localGlasses]);
+
+        if (foreignSet.size > 0) {
+          const validCatIds = new Set<string>([
+            ...serverCats.map((c) => c.id),
+            ...localBeers.map((b) => b.categoryId),
+          ]);
+          localCats = deduplicateById([...serverCats, ...localCats]).filter((c) =>
+            validCatIds.has(c.id)
+          );
+        } else {
+          localCats = deduplicateById([...serverCats, ...localCats]);
+        }
 
         const mem = getUserMemory(userId);
         mem.categories = localCats;

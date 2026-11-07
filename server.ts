@@ -475,6 +475,7 @@ async function startServer() {
       lastActiveAt: new Date().toISOString(),
     });
     const records = await centralDb.getUserRecords(profile.id);
+    const foreignRecordIds = await centralDb.getForeignRecordIds(profile.id);
     res.json({
       user: {
         id: profile.id,
@@ -487,6 +488,7 @@ async function startServer() {
         createdAt: profile.createdAt,
       },
       records,
+      foreignRecordIds,
     });
   });
 

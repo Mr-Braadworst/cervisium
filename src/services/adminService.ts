@@ -959,6 +959,52 @@ export async function fetchAdminDashboardData(
     }
   }
 
+  // Verwijder eventuele per ongeluk gekopieerde bieren/proefnotities/glazen van andere gebruikers uit het admin-account
+  const nonAdminBeerIds = new Set<string>();
+  const nonAdminTastingIds = new Set<string>();
+  const nonAdminGlassIds = new Set<string>();
+
+  for (const [uid] of Array.from(userMap.entries())) {
+    if (uid === adminUser.id) continue;
+    for (const bId of beersByUser.get(uid)?.keys() || []) nonAdminBeerIds.add(bId);
+    for (const tId of tastingsByUser.get(uid)?.keys() || []) nonAdminTastingIds.add(tId);
+    for (const gId of glassesByUser.get(uid)?.keys() || []) nonAdminGlassIds.add(gId);
+  }
+
+  const adminBeersMap = beersByUser.get(adminUser.id);
+  const adminTastingsMap = tastingsByUser.get(adminUser.id);
+  const adminGlassesMap = glassesByUser.get(adminUser.id);
+  let adminWasCleaned = false;
+
+  if (adminBeersMap && nonAdminBeerIds.size > 0) {
+    for (const bId of Array.from(adminBeersMap.keys())) {
+      if (nonAdminBeerIds.has(bId)) {
+        adminBeersMap.delete(bId);
+        adminWasCleaned = true;
+      }
+    }
+  }
+  if (adminTastingsMap && (nonAdminTastingIds.size > 0 || nonAdminBeerIds.size > 0)) {
+    for (const [tId, tObj] of Array.from(adminTastingsMap.entries())) {
+      const refBeerId = typeof tObj.beerId === 'string' ? tObj.beerId : '';
+      if (nonAdminTastingIds.has(tId) || (refBeerId && nonAdminBeerIds.has(refBeerId))) {
+        adminTastingsMap.delete(tId);
+        adminWasCleaned = true;
+      }
+    }
+  }
+  if (adminGlassesMap && nonAdminGlassIds.size > 0) {
+    for (const gId of Array.from(adminGlassesMap.keys())) {
+      if (nonAdminGlassIds.has(gId)) {
+        adminGlassesMap.delete(gId);
+        adminWasCleaned = true;
+      }
+    }
+  }
+  if (adminWasCleaned) {
+    void syncUserWithServerDatabase(adminUser);
+  }
+
   // Filter eventuele lege spook-accounts zonder e-mailadres én zonder items eruit
   for (const [uid, u] of Array.from(userMap.entries())) {
     if (uid === adminUser.id) continue;
