@@ -77,6 +77,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
 
   const loadStats = useCallback(async () => {
     if (!authorized) {
+      setStats(null);
       setError('Geen toegang: dit paneel is uitsluitend toegankelijk voor de eigenaar.');
       setLoading(false);
       return;
@@ -87,6 +88,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     try {
       const serverCheck = await verifyAdminServerSide(adminUser);
       if (!serverCheck.verified) {
+        setStats(null);
         setError('Server-side Admin verificatie geweigerd (403 Forbidden).');
         setLoading(false);
         return;
@@ -94,6 +96,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       const result = await fetchAdminDashboardData(adminUser);
       setStats(result);
     } catch (err) {
+      setStats(null);
       setError(
         err instanceof Error
           ? err.message

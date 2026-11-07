@@ -1,5 +1,14 @@
 import { Beer, Category, UserAccount, Tasting, BeerSession, BeerGlass, UserSettings } from '../types';
-import { auth } from '../firebase';
+import {
+  auth,
+  db,
+  collection,
+  collectionGroup,
+  getDocs,
+  deleteDoc,
+  doc,
+  isClientFirestoreEnabled,
+} from '../firebase';
 import {
   generateSecureId,
   isValidEntityId,
@@ -1191,6 +1200,64 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
           ? data.foreignRecordIds.filter((id): id is string => typeof id === 'string')
           : []
       );
+
+      // Indien Firestore actief is, controleer óók in Firestore welke record-ID's van andere gebruikers zijn
+      if (isClientFirestoreEnabled() && auth.currentUser) {
+        try {
+          const withFastTimeout = <T>(p: Promise<T>, ms = 2500): Promise<T | null> =>
+            Promise.race([
+              p,
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+            ]);
+
+          const [allBeersSnap, allTastingsSnap, allGlassesSnap, ownBeersSnap] = await Promise.all([
+            withFastTimeout(getDocs(collectionGroup(db, 'beers'))),
+            withFastTimeout(getDocs(collectionGroup(db, 'tastings'))),
+            withFastTimeout(getDocs(collectionGroup(db, 'glasses'))),
+            withFastTimeout(getDocs(collection(db, 'users', userId, 'beers'))),
+          ]);
+
+          const extractOwnerUid = (docRef: { parent: { parent: { id: string } | null } }): string =>
+            docRef.parent.parent?.id || '';
+
+          allBeersSnap?.forEach((d) => {
+            const owner = extractOwnerUid(d.ref);
+            if (owner && owner !== userId) foreignSet.add(d.id);
+          });
+          allTastingsSnap?.forEach((d) => {
+            const owner = extractOwnerUid(d.ref);
+            if (owner && owner !== userId) foreignSet.add(d.id);
+          });
+          allGlassesSnap?.forEach((d) => {
+            const owner = extractOwnerUid(d.ref);
+            if (owner && owner !== userId) foreignSet.add(d.id);
+          });
+
+          // Als het eigen Firestore account bieren bevat, verwijder dan eventuele vervuilde items
+          // die van andere gebruikers zijn óf alleen als spooksleutel in localStorage stonden
+          if (ownBeersSnap) {
+            const ownFirestoreBeerIds = new Set<string>();
+            ownBeersSnap.forEach((d) => {
+              if (foreignSet.has(d.id)) {
+                void deleteDoc(doc(db, 'users', userId, 'beers', d.id)).catch(() => {});
+              } else {
+                ownFirestoreBeerIds.add(d.id);
+              }
+            });
+            if (ownFirestoreBeerIds.size > 0) {
+              localBeers = localBeers.filter((b) => ownFirestoreBeerIds.has(b.id));
+              if (data.records && Array.isArray(data.records.beers)) {
+                data.records.beers = data.records.beers.filter((b) => {
+                  const id = b && typeof b === 'object' ? String((b as any).id || '') : '';
+                  return ownFirestoreBeerIds.has(id);
+                });
+              }
+            }
+          }
+        } catch {
+          // Niet-blokkerend
+        }
+      }
 
       if (foreignSet.size > 0) {
         localBeers = localBeers.filter((b) => !foreignSet.has(b.id));

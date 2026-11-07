@@ -10,12 +10,15 @@ import {
   requireAuth,
   requireAdmin,
   rateLimitMiddleware,
+  authRateLimitMiddleware,
   resolveRequestUser,
   createSignedSessionToken,
   hashPassword,
   verifyPassword,
   sanitizeServerString,
   sanitizeServerImageUrl,
+  sanitizeServerUserSettings,
+  isValidServerId,
   isVerifiedAdminEmail,
 } from './server/security';
 import { centralDb } from './server/db';
@@ -23,24 +26,70 @@ import { centralDb } from './server/db';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Blokkeer directe HTTP-toegang tot serverbestanden, configuraties, .env, .git en broncode
+// (laat Vite's interne /node_modules/.vite/ bundels en ES-module ?import requests wel door)
+const BLOCKED_PATH_PATTERNS = [
+  /(?:^|\/)\.(?:env|git|github|dockerignore|gitignore|npmrc|yarnrc|ssh|aws|htaccess|htpasswd|DS_Store)(?:\/|$|\.)/i,
+  /^\/server(?:\.ts|\/|$)/i,
+  /^\/firestore\.rules$/i,
+  /^\/firebase-blueprint\.json$/i,
+  /^\/package(?:-lock)?\.json$/i,
+  /^\/tsconfig.*\.json$/i,
+  /^\/dockerfile/i,
+  /^\/docker-compose/i,
+  /\.(?:env|pem|key|sql|bak|log|sh)$/i,
+];
+
 async function startServer() {
   await centralDb.init();
 
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  // Beveiligingsheaders op elke response
+  // Beveiligingsheaders & pad-blokkade op elke request
   app.disable('x-powered-by');
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), payment=(), usb=()');
+
+    const fullUrl = req.originalUrl || req.url || '';
+    const rawPath = (req.path || fullUrl).split('?')[0];
+    let decodedPath = rawPath;
+    try {
+      decodedPath = decodeURIComponent(rawPath);
+    } catch {
+      res.status(400).json({ error: 'Ongeldig URL-pad.' });
+      return;
+    }
+
+    const isDirectFirebaseConfigRequest =
+      decodedPath.toLowerCase() === '/firebase-applet-config.json' &&
+      !fullUrl.includes('?import');
+
+    if (
+      decodedPath.includes('..') ||
+      decodedPath.includes('\0') ||
+      isDirectFirebaseConfigRequest ||
+      BLOCKED_PATH_PATTERNS.some((rx) => rx.test(decodedPath))
+    ) {
+      res.status(403).json({ error: 'Toegang geweigerd.' });
+      return;
+    }
+
+    if (decodedPath.startsWith('/api/')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.setHeader('Pragma', 'no-cache');
+    }
+
     next();
   });
 
   // JSON body-limiet van 150MB voor grote collecties en admin back-ups inclusief gecomprimeerde foto's
   app.use(express.json({ limit: '150mb' }));
   app.use('/api', rateLimitMiddleware(240));
+  app.use('/api/auth', authRateLimitMiddleware(12, 15 * 60 * 1000));
 
   async function getServerSystemMetrics() {
     // 1. RAM meting op Linux via /proc/meminfo (MemAvailable houdt rekening met Linux disk cache/buffers, zoals free -h / htop)
@@ -175,18 +224,16 @@ async function startServer() {
   }
 
   // ==========================================================================
-  // 1. HEALTH & SERVER SYSTEEM-METINGEN ENDPOINTS (Geen gevoelige sleutels)
+  // 1. HEALTH & SERVER SYSTEEM-METINGEN ENDPOINTS (Systeemdata alleen voor Admin)
   // ==========================================================================
-  app.get('/api/health', async (_req, res) => {
+  app.get('/api/health', (_req, res) => {
     res.json({
       status: 'ok',
-      postgresConnected: centralDb.isPostgresConfigured(),
-      systemMetrics: await getServerSystemMetrics(),
       timestamp: new Date().toISOString(),
     });
   });
 
-  app.get('/api/system/metrics', async (_req, res) => {
+  app.get('/api/system/metrics', requireAdmin, async (_req, res) => {
     res.json({
       systemMetrics: await getServerSystemMetrics(),
     });
@@ -294,11 +341,28 @@ async function startServer() {
       const existingUser = await centralDb.getUserByEmail(cleanEmail);
       let passwordHashToSave: string;
 
-      if (existingUser && existingUser.passwordHash) {
+      // Blokkeer account-overname: als een beheerdersaccount of Google-account nog geen wachtwoord-hash heeft,
+      // mag NIEMAND via dit onbevestigde formulier een wachtwoord op dat e-mailadres instellen.
+      if (isVerifiedAdminEmail(cleanEmail, true) && (!existingUser || !existingUser.passwordHash)) {
+        res.status(403).json({
+          error:
+            'Beheerdersaccounts zijn beveiligd en kunnen alleen inloggen via geverifieerde Google-authenticatie.',
+        });
+        return;
+      }
+
+      if (existingUser) {
+        if (!existingUser.passwordHash) {
+          res.status(403).json({
+            error:
+              'Dit e-mailadres is gekoppeld aan Google-inlog. Log in met de Google-knop of stel eerst ingelogd een wachtwoord in.',
+          });
+          return;
+        }
         const isMatch = await verifyPassword(password, existingUser.passwordHash);
         if (!isMatch) {
           res.status(401).json({
-            error: 'Onjuist wachtwoord voor dit e-mailadres.',
+            error: 'Onjuist e-mailadres of wachtwoord.',
           });
           return;
         }
@@ -320,7 +384,14 @@ async function startServer() {
           .replace(/\b\w/g, (c) => c.toUpperCase()) ||
         'Bierliefhebber';
 
-      const role: 'admin' | 'user' = isVerifiedAdminEmail(cleanEmail, true) ? 'admin' : 'user';
+      // Ken NOOIT automatisch admin-rechten toe bij onbevestigde e-mail/wachtwoord registratie
+      const isVerifiedExistingAdmin = Boolean(
+        existingUser &&
+          existingUser.passwordHash &&
+          existingUser.role === 'admin' &&
+          isVerifiedAdminEmail(cleanEmail, true)
+      );
+      const role: 'admin' | 'user' = isVerifiedExistingAdmin ? 'admin' : 'user';
 
       const dbUser = await centralDb.upsertUser({
         id: derivedId,
@@ -337,7 +408,7 @@ async function startServer() {
         uid: dbUser.id,
         email: dbUser.email,
         name: dbUser.name,
-        emailVerified: true,
+        emailVerified: isVerifiedExistingAdmin,
       });
 
       const isSecure = Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
@@ -360,9 +431,9 @@ async function startServer() {
         },
         records,
       });
-    } catch (err) {
+    } catch {
       res.status(500).json({
-        error: err instanceof Error ? err.message : 'Inloggen op de server is mislukt.',
+        error: 'Inloggen op de server is mislukt.',
       });
     }
   });
@@ -502,12 +573,20 @@ async function startServer() {
       name: sanitizeServerString(body.name, 100, authUser.name || 'Bierliefhebber'),
       role: authUser.role,
       avatarUrl: sanitizeServerImageUrl(body.avatarUrl),
-      settings:
-        body.settings && typeof body.settings === 'object'
-          ? (body.settings as Record<string, unknown>)
-          : undefined,
+      settings: body.settings ? sanitizeServerUserSettings(body.settings) : undefined,
     });
-    res.json({ user: updated });
+    res.json({
+      user: {
+        id: updated.id,
+        email: updated.email,
+        name: updated.name,
+        googleName: updated.googleName,
+        role: updated.role,
+        avatarUrl: updated.avatarUrl,
+        settings: updated.settings,
+        createdAt: updated.createdAt,
+      },
+    });
   });
 
   app.post('/api/me/records/sync', requireAuth, async (req, res) => {
@@ -562,19 +641,32 @@ async function startServer() {
   app.put('/api/admin/users/:userId', requireAdmin, async (req, res) => {
     try {
       const targetUserId = req.params.userId;
+      if (!isValidServerId(targetUserId)) {
+        res.status(400).json({ error: 'Ongeldig gebruikers-ID.' });
+        return;
+      }
       const { name, email } = (req.body || {}) as { name?: string; email?: string };
       const existing = await centralDb.getUserById(targetUserId);
       const updated = await centralDb.upsertUser({
         id: targetUserId,
         email: sanitizeServerString(email, 180, existing?.email || ''),
         name: sanitizeServerString(name, 100, existing?.name || 'Bierliefhebber'),
-        role: existing?.role,
+        role: existing?.role === 'admin' ? 'admin' : 'user',
         avatarUrl: existing?.avatarUrl,
       });
-      res.json({ ok: true, user: updated });
-    } catch (err) {
+      res.json({
+        ok: true,
+        user: {
+          id: updated.id,
+          email: updated.email,
+          name: updated.name,
+          role: updated.role,
+          avatarUrl: updated.avatarUrl,
+        },
+      });
+    } catch {
       res.status(400).json({
-        error: err instanceof Error ? err.message : 'Kon gebruiker niet bijwerken.',
+        error: 'Kon gebruiker niet bijwerken.',
       });
     }
   });
@@ -625,7 +717,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath, { index: false }));
+    app.use(express.static(distPath, { index: false, dotfiles: 'deny' }));
     app.get('*', (_req, res) => {
       const indexPath = path.join(distPath, 'index.html');
       const runtimeApiKey = (
@@ -666,7 +758,13 @@ async function startServer() {
               (process.env.FIREBASE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '').trim() ||
               '(default)',
           };
-          const scriptTag = `<script>window.__BIERLOG_FIREBASE_CONFIG__=${JSON.stringify(runtimeConfig)};</script>`;
+          const safeJson = JSON.stringify(runtimeConfig)
+            .replace(/</g, '\\u003c')
+            .replace(/>/g, '\\u003e')
+            .replace(/&/g, '\\u0026')
+            .replace(/\u2028/g, '\\u2028')
+            .replace(/\u2029/g, '\\u2029');
+          const scriptTag = `<script>window.__BIERLOG_FIREBASE_CONFIG__=${safeJson};</script>`;
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           res.send(rawHtml.replace('<head>', `<head>${scriptTag}`));
           return;

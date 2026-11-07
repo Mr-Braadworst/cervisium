@@ -43,7 +43,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Key metrics calculation
   const stats = useMemo(() => {
-    if (beers.length === 0) {
+    const ownBeers = activeUser
+      ? beers.filter((b) => !b.userId || b.userId === activeUser.id)
+      : beers;
+
+    if (ownBeers.length === 0) {
       return {
         total: 0,
         avgRating: 0,
@@ -56,12 +60,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       };
     }
 
-    const total = beers.length;
-    const avgRating = tastings.length > 0 
+    const distinctBeerKeys = new Set(
+      ownBeers.map(
+        (b) => `${b.name.trim().toLowerCase()}::${(b.brewery || '').trim().toLowerCase()}`
+      )
+    );
+    const total = distinctBeerKeys.size || ownBeers.length;
+    const avgRating =
+      tastings.length > 0
         ? tastings.reduce((acc, t) => acc + t.rating, 0) / tastings.length
         : 0;
-    const avgAbv = beers.reduce((acc, b) => acc + b.abv, 0) / total;
-    const favoritesCount = beers.filter((b) => b.favorite).length;
+    const avgAbv = ownBeers.reduce((acc, b) => acc + b.abv, 0) / ownBeers.length;
+    const favoritesCount = ownBeers.filter((b) => b.favorite).length;
 
     // Top rated beers (based on avg rating)
     const beerAvgRatings = beers.map((b) => {
@@ -117,7 +127,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       favoritesCount,
       categoryCounts,
     };
-  }, [beers, tastings, categories, categoryMap]);
+  }, [activeUser, beers, tastings, categories, categoryMap]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const matchingBeers = useMemo(() => {
@@ -256,10 +266,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
-        {/* Totaal Bieren */}
+        {/* Totaal aantal verschillende bieren */}
         <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-md">
           <div className="flex items-center justify-between text-zinc-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Totaal Bieren</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Totaal aantal verschillende bieren</span>
             <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
               <BeerIcon className="w-4 h-4" />
             </div>

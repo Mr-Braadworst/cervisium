@@ -15,10 +15,11 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Beveiligde Super-Admin check via SHA-256 hash zodat het e-mailadres niet in platte tekst in de repo staat
+    // Beveiligde Super-Admin check via SHA-256 hash én verplichte email_verified controle
     function isAdmin() {
       return isAuthenticated()
         && request.auth.token.email is string
+        && request.auth.token.email_verified == true
         && hashing.sha256(request.auth.token.email.lower().toUtf8()).toHexString().lower() == "b31f85f31cdb5947fa2cdf12ceaf3fd149a5c11b53a9f922acbb44da4b22f0e0";
     }
 

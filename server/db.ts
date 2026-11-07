@@ -5,10 +5,20 @@ import {
   sanitizeServerString,
   sanitizeServerNumber,
   sanitizeServerImageUrl,
+  sanitizeServerUserSettings,
   isVerifiedAdminEmail,
 } from './security';
 
 const { Pool } = pg;
+
+const ALLOWED_COLLECTION_TYPES = new Set([
+  'categories',
+  'beers',
+  'tastings',
+  'glasses',
+  'pubDeals',
+  'sessions',
+]);
 
 export interface DbUserRecord {
   id: string;
@@ -257,6 +267,16 @@ class CentralDatabaseClient {
               AND (own_beer.payload->>'categoryId') = admin_cat.id
           );
       `);
+
+      // 4. Zorg dat geen enkel account in de database role='admin' heeft tenzij het e-mailadres geverifieerd is als eigenaar
+      const allAdminsRes = await this.pool.query(
+        "SELECT id, email FROM users WHERE role = 'admin'"
+      );
+      for (const r of allAdminsRes.rows) {
+        if (!isVerifiedAdminEmail(String(r.email || ''), true)) {
+          await this.pool.query("UPDATE users SET role = 'user' WHERE id = $1", [r.id]);
+        }
+      }
     } catch (err) {
       console.warn('[Database] Herstel cross-account isolatie melding:', err instanceof Error ? err.message : err);
     }
@@ -473,7 +493,8 @@ class CentralDatabaseClient {
     const safeEmail = isPlaceholderEmailValue(rawEmail) ? '' : rawEmail;
     const safeName = sanitizeServerString(user.name, 100, 'Bierliefhebber');
     const role: 'admin' | 'user' =
-      user.role === 'admin' || isVerifiedAdminEmail(safeEmail, true) ? 'admin' : 'user';
+      user.role === 'admin' && isVerifiedAdminEmail(safeEmail, true) ? 'admin' : 'user';
+    const cleanSettings = sanitizeServerUserSettings(user.settings);
     const nowIso = new Date().toISOString();
 
     if (this.pool) {
@@ -487,7 +508,7 @@ class CentralDatabaseClient {
         let inheritedGoogleName: string | null = user.googleName
           ? sanitizeServerString(user.googleName, 100)
           : null;
-        let inheritedSettings: Record<string, unknown> = user.settings || {};
+        let inheritedSettings: Record<string, unknown> = cleanSettings;
         let inheritedCreatedAt: string = user.createdAt || nowIso;
         let oldIdsToMerge: string[] = [];
 
@@ -513,7 +534,7 @@ class CentralDatabaseClient {
                 typeof existingRow.settings === 'object' &&
                 Object.keys(inheritedSettings).length === 0
               ) {
-                inheritedSettings = existingRow.settings;
+                inheritedSettings = sanitizeServerUserSettings(existingRow.settings);
               }
               if (existingRow.created_at) {
                 const existingIso = new Date(existingRow.created_at).toISOString();
@@ -539,7 +560,7 @@ class CentralDatabaseClient {
               ELSE COALESCE(NULLIF(users.name, ''), EXCLUDED.name)
             END,
             google_name = COALESCE(EXCLUDED.google_name, users.google_name),
-            role = CASE WHEN users.role = 'admin' OR EXCLUDED.role = 'admin' THEN 'admin' ELSE 'user' END,
+            role = EXCLUDED.role,
             password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),
             avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
             settings = CASE
@@ -615,9 +636,10 @@ class CentralDatabaseClient {
     }
 
     const existing = this.memoryUsers.get(safeId);
+    const effectiveEmail = safeEmail || existing?.email || '';
     const record: DbUserRecord = {
       id: safeId,
-      email: safeEmail || existing?.email || '',
+      email: effectiveEmail,
       name:
         safeName && safeName !== 'Bierliefhebber'
           ? safeName
@@ -625,12 +647,12 @@ class CentralDatabaseClient {
       googleName: user.googleName
         ? sanitizeServerString(user.googleName, 100)
         : existing?.googleName,
-      role: existing?.role === 'admin' || role === 'admin' ? 'admin' : 'user',
+      role: role === 'admin' && isVerifiedAdminEmail(effectiveEmail, true) ? 'admin' : 'user',
       passwordHash: user.passwordHash || existing?.passwordHash,
       avatarUrl: sanitizeServerImageUrl(user.avatarUrl) || existing?.avatarUrl,
       settings:
-        user.settings && Object.keys(user.settings).length > 0
-          ? user.settings
+        Object.keys(cleanSettings).length > 0
+          ? cleanSettings
           : existing?.settings || {},
       createdAt: existing?.createdAt || user.createdAt || nowIso,
       lastActiveAt: user.lastActiveAt || nowIso,
@@ -946,6 +968,13 @@ class CentralDatabaseClient {
     payload: Record<string, unknown>,
     skipDuplicates = true
   ): Promise<boolean> {
+    if (
+      !isValidServerId(userId) ||
+      !isValidServerId(recordId) ||
+      !ALLOWED_COLLECTION_TYPES.has(collectionType)
+    ) {
+      return false;
+    }
     const cleanPayload = sanitizeCollectionRecord(collectionType, recordId, userId, payload);
     if (!cleanPayload) return false;
 

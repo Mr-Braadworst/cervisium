@@ -245,6 +245,12 @@ const TRANSLATIONS: Record<string, TranslationEntry> = {
     fr: 'Bières Dégustées',
     es: 'Cervezas Probadas',
   },
+  'Totaal aantal verschillende bieren': {
+    en: 'Total distinct beers',
+    de: 'Gesamtzahl verschiedener Biere',
+    fr: 'Nombre total de bières différentes',
+    es: 'Total de cervezas diferentes',
+  },
   'Unieke bieren': {
     en: 'Unique beers',
     de: 'Einzigartige Biere',

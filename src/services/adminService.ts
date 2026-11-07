@@ -156,13 +156,18 @@ export const BYTES_PER_GB = 1024 * 1024 * 1024;
  */
 export function isSuperAdmin(user: UserAccount | null | undefined): boolean {
   if (!user || !user.email) return false;
-  if (user.role === 'admin' && isOwnerEmail(user.email)) return true;
   if (!isOwnerEmail(user.email)) return false;
 
   const fbUser = auth.currentUser;
-  if (!fbUser) return true;
+  if (fbUser) {
+    return Boolean(
+      fbUser.emailVerified &&
+      isOwnerEmail(fbUser.email) &&
+      user.id === fbUser.uid
+    );
+  }
 
-  return isOwnerEmail(fbUser.email) && user.id === fbUser.uid;
+  return user.role === 'admin' && isOwnerEmail(user.email);
 }
 
 function isClientFirestoreEnabled(): boolean {
@@ -775,6 +780,10 @@ export async function fetchAdminDashboardData(
           Authorization: `Bearer ${freshToken}`,
         },
       });
+    }
+
+    if (serverRes.status === 401 || serverRes.status === 403) {
+      throw new Error('Geen toegang: server-side Admin verificatie geweigerd (403 Forbidden).');
     }
 
     if (serverRes.ok) {
@@ -1486,8 +1495,8 @@ export async function verifyAdminServerSide(adminUser: UserAccount): Promise<{
       credentials: 'include',
       headers,
     });
-    if (!res.ok) {
-      return { verified: isSuperAdmin(adminUser), databaseEngine: 'postgresql' };
+    if (res.status === 401 || res.status === 403 || !res.ok) {
+      return { verified: false, databaseEngine: 'none' };
     }
     const data = (await res.json()) as {
       authorized?: boolean;
@@ -1498,7 +1507,17 @@ export async function verifyAdminServerSide(adminUser: UserAccount): Promise<{
       databaseEngine: data.databaseEngine || 'postgresql',
     };
   } catch {
-    return { verified: true, databaseEngine: 'postgresql' };
+    const fbUser = auth.currentUser;
+    const isOfflineVerifiedOwner = Boolean(
+      fbUser &&
+      fbUser.emailVerified &&
+      isOwnerEmail(fbUser.email) &&
+      fbUser.uid === adminUser.id
+    );
+    return {
+      verified: isOfflineVerifiedOwner,
+      databaseEngine: isOfflineVerifiedOwner ? 'postgresql' : 'none',
+    };
   }
 }
 

@@ -230,6 +230,19 @@ async function getGooglePublicCerts(forceRefresh = false): Promise<Record<string
   return combined;
 }
 
+function getAllowedFirebaseProjectIds(): Set<string> {
+  const allowed = new Set<string>(['cervisium', 'gen-lang-client-0932078079']);
+  const envProj = (
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.VITE_FIREBASE_PROJECT_ID ||
+    ''
+  ).trim();
+  if (envProj && envProj !== 'your-project-id') {
+    allowed.add(envProj);
+  }
+  return allowed;
+}
+
 /**
  * Verifieert zowel een rechtstreeks Google OAuth 2.0 ID Token (Google Identity Services — 100% zonder Firebase/Firestore!)
  * als een Firebase Google ID Token cryptografisch op de server tegen de officiële X.509 publieke sleutels van Google.
@@ -237,7 +250,7 @@ async function getGooglePublicCerts(forceRefresh = false): Promise<Record<string
 export async function verifyFirebaseIdToken(
   idToken: string
 ): Promise<(AuthenticatedServerUser & { avatarUrl?: string }) | null> {
-  if (!idToken || typeof idToken !== 'string') return null;
+  if (!idToken || typeof idToken !== 'string' || idToken.length > 16384) return null;
   const segments = idToken.split('.');
   if (segments.length !== 3) return null;
 
@@ -259,31 +272,46 @@ export async function verifyFirebaseIdToken(
       iss?: string;
     };
 
-    if (header.alg !== 'RS256' || !header.kid) return null;
+    if (header.alg !== 'RS256' || !header.kid || typeof header.kid !== 'string') return null;
     const nowSec = Math.floor(Date.now() / 1000);
     // Sta maximaal 5 minuten klokverschil toe in containers
     if (!payload.exp || payload.exp < nowSec - 300) return null;
+    if (payload.iat && payload.iat > nowSec + 300) return null;
 
-    // Controleer issuer (Google OAuth 2.0 of Google SecureToken)
+    // Controleer issuer (Google OAuth 2.0 of Google SecureToken voor het eigen project)
     const iss = payload.iss || '';
-    const isGoogleIssuer =
-      iss === 'accounts.google.com' ||
-      iss === 'https://accounts.google.com' ||
-      iss.startsWith('https://securetoken.google.com/');
-    if (!isGoogleIssuer) return null;
+    const isDirectGoogleOAuth =
+      iss === 'accounts.google.com' || iss === 'https://accounts.google.com';
+    const isFirebaseSecureToken = iss.startsWith('https://securetoken.google.com/');
+    if (!isDirectGoogleOAuth && !isFirebaseSecureToken) return null;
+
+    if (isFirebaseSecureToken) {
+      const issuerProject = iss.slice('https://securetoken.google.com/'.length).trim();
+      const allowedProjects = getAllowedFirebaseProjectIds();
+      if (
+        !issuerProject ||
+        !payload.aud ||
+        issuerProject !== payload.aud ||
+        !allowedProjects.has(issuerProject)
+      ) {
+        return null;
+      }
+    }
 
     // Als GOOGLE_CLIENT_ID is geconfigureerd en het een direct Google OAuth token is, controleer audience
     const expectedClientId = process.env.GOOGLE_CLIENT_ID?.trim();
     if (
       expectedClientId &&
-      (iss === 'accounts.google.com' || iss === 'https://accounts.google.com') &&
+      expectedClientId !== 'YOUR_GOOGLE_OAUTH_CLIENT_ID' &&
+      isDirectGoogleOAuth &&
       payload.aud !== expectedClientId
     ) {
       return null;
     }
 
     const rawUid = payload.sub || payload.user_id;
-    const uid = rawUid && isValidServerId(rawUid) ? rawUid : sanitizeServerId(rawUid, 'goog');
+    if (!rawUid || typeof rawUid !== 'string') return null;
+    const uid = isValidServerId(rawUid) ? rawUid : sanitizeServerId(rawUid, 'goog');
 
     let certs = await getGooglePublicCerts(false);
     let certPem = certs[header.kid];
@@ -301,8 +329,8 @@ export async function verifyFirebaseIdToken(
     if (!signatureValid) return null;
 
     const email = sanitizeServerString(payload.email, 180).toLowerCase();
-    const isFirebaseSigned = iss.startsWith('https://securetoken.google.com/');
-    const emailVerified = Boolean(payload.email_verified || isFirebaseSigned);
+    // EIS STRIKT dat email_verified === true is (vertrouw nooit blind op isFirebaseSigned)
+    const emailVerified = payload.email_verified === true;
     const name = sanitizeServerString(
       payload.name || (email ? email.split('@')[0] : 'Bierliefhebber'),
       100
@@ -324,14 +352,18 @@ export async function verifyFirebaseIdToken(
 
 export function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
-  if (!cookieHeader) return out;
+  if (!cookieHeader || cookieHeader.length > 8192) return out;
   for (const part of cookieHeader.split(';')) {
     const idx = part.indexOf('=');
     if (idx > 0) {
       const k = part.slice(0, idx).trim();
       const v = part.slice(idx + 1).trim();
       if (k && k !== '__proto__' && k !== 'constructor' && k !== 'prototype') {
-        out[k] = decodeURIComponent(v);
+        try {
+          out[k] = decodeURIComponent(v);
+        } catch {
+          // Negeer ongeldige URI-encoding in cookie
+        }
       }
     }
   }
@@ -401,7 +433,11 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
       });
       return;
     }
-    if (user.role !== 'admin' || !isVerifiedAdminEmail(user.email, user.emailVerified)) {
+    if (
+      user.role !== 'admin' ||
+      !user.emailVerified ||
+      !isVerifiedAdminEmail(user.email, user.emailVerified)
+    ) {
       res.status(403).json({
         error: 'Toegang geweigerd: uitsluitend toegankelijk voor geverifieerde beheerders.',
         code: 'FORBIDDEN_NOT_ADMIN',
@@ -477,7 +513,48 @@ export function sanitizeServerImageUrl(url: unknown): string | undefined {
   return undefined;
 }
 
+const ALLOWED_START_TABS = new Set(['dashboard', 'list', 'top', 'categories', 'glasses', 'extras']);
+const ALLOWED_LANGUAGES = new Set(['auto', 'nl', 'en', 'de', 'fr', 'es']);
+
+/**
+ * Strikte server-side whitelist-sanitisatie voor UserSettings JSONB.
+ * Blokkeert Prototype Pollution, schaduwvelden (zoals role/isAdmin) en geheugen-uitputting.
+ */
+export function sanitizeServerUserSettings(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+  const obj = raw as Record<string, unknown>;
+  const clean: Record<string, unknown> = {};
+
+  if (typeof obj.lightMode === 'boolean') clean.lightMode = obj.lightMode;
+  if (typeof obj.language === 'string' && ALLOWED_LANGUAGES.has(obj.language)) {
+    clean.language = obj.language;
+  }
+  if (typeof obj.showExtrasDealBadge === 'boolean') {
+    clean.showExtrasDealBadge = obj.showExtrasDealBadge;
+  }
+  if (typeof obj.showNavCollectionCounts === 'boolean') {
+    clean.showNavCollectionCounts = obj.showNavCollectionCounts;
+  }
+  if (typeof obj.showExtrasTab === 'boolean') clean.showExtrasTab = obj.showExtrasTab;
+  if (typeof obj.showDealScanner === 'boolean') clean.showDealScanner = obj.showDealScanner;
+  if (typeof obj.defaultStartTab === 'string' && ALLOWED_START_TABS.has(obj.defaultStartTab)) {
+    clean.defaultStartTab = obj.defaultStartTab;
+  }
+  if (obj.defaultBeerPrice !== undefined) {
+    clean.defaultBeerPrice = sanitizeServerNumber(obj.defaultBeerPrice, 0.5, 100, 3.5);
+  }
+  if (obj.defaultGlassSizeCl !== undefined) {
+    clean.defaultGlassSizeCl = Math.round(
+      sanitizeServerNumber(obj.defaultGlassSizeCl, 10, 200, 33)
+    );
+  }
+  return clean;
+}
+
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+const authRateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 export function rateLimitMiddleware(maxRequestsPerMinute = 120) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -505,3 +582,34 @@ export function rateLimitMiddleware(maxRequestsPerMinute = 120) {
     next();
   };
 }
+
+/**
+ * Strikte brute-force rate limiter specifiek voor inlog- en wachtwoord-endpoints.
+ */
+export function authRateLimitMiddleware(maxAttemptsPerWindow = 12, windowMs = 15 * 60 * 1000) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.socket.remoteAddress ||
+      'unknown';
+    const now = Date.now();
+    const entry = authRateLimitStore.get(ip);
+
+    if (!entry || entry.resetAt <= now) {
+      authRateLimitStore.set(ip, { count: 1, resetAt: now + windowMs });
+      next();
+      return;
+    }
+
+    entry.count += 1;
+    if (entry.count > maxAttemptsPerWindow) {
+      res.status(429).json({
+        error: 'Te veel inlogpogingen vanaf dit IP-adres. Wacht 15 minuten en probeer het opnieuw.',
+        code: 'AUTH_RATE_LIMITED',
+      });
+      return;
+    }
+    next();
+  };
+}
+
