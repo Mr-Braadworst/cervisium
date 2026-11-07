@@ -326,16 +326,25 @@ async function startServer() {
   // ==========================================================================
   app.get('/api/me', requireAuth, async (req, res) => {
     const authUser = req.authUser!;
-    const profile = await centralDb.getUserById(authUser.uid);
-    const records = await centralDb.getUserRecords(authUser.uid);
+    // Zorg dat eventuele eerdere accounts met hetzelfde e-mailadres direct worden samengevoegd
+    const profile = await centralDb.upsertUser({
+      id: authUser.uid,
+      email: authUser.email,
+      name: authUser.name || 'Bierliefhebber',
+      role: authUser.role,
+      lastActiveAt: new Date().toISOString(),
+    });
+    const records = await centralDb.getUserRecords(profile.id);
     res.json({
       user: {
-        id: authUser.uid,
-        email: authUser.email,
-        name: profile?.name || authUser.name,
-        role: authUser.role,
-        avatarUrl: profile?.avatarUrl,
-        settings: profile?.settings || {},
+        id: profile.id,
+        email: profile.email || authUser.email,
+        name: profile.name || authUser.name,
+        googleName: profile.googleName,
+        role: profile.role || authUser.role,
+        avatarUrl: profile.avatarUrl,
+        settings: profile.settings || {},
+        createdAt: profile.createdAt,
       },
       records,
     });
@@ -363,14 +372,22 @@ async function startServer() {
     try {
       const authUser = req.authUser!;
       const body = (req.body || {}) as Record<string, unknown>;
-      await centralDb.syncUserCollections(authUser.uid, {
-        categories: Array.isArray(body.categories) ? body.categories : undefined,
-        beers: Array.isArray(body.beers) ? body.beers : undefined,
-        tastings: Array.isArray(body.tastings) ? body.tastings : undefined,
-        glasses: Array.isArray(body.glasses) ? body.glasses : undefined,
-        pubDeals: Array.isArray(body.pubDeals) ? body.pubDeals : undefined,
-        sessions: Array.isArray(body.sessions) ? body.sessions : undefined,
-      });
+      await centralDb.syncUserCollections(
+        authUser.uid,
+        {
+          categories: Array.isArray(body.categories) ? body.categories : undefined,
+          beers: Array.isArray(body.beers) ? body.beers : undefined,
+          tastings: Array.isArray(body.tastings) ? body.tastings : undefined,
+          glasses: Array.isArray(body.glasses) ? body.glasses : undefined,
+          pubDeals: Array.isArray(body.pubDeals) ? body.pubDeals : undefined,
+          sessions: Array.isArray(body.sessions) ? body.sessions : undefined,
+        },
+        {
+          email: authUser.email,
+          name: authUser.name,
+          role: authUser.role,
+        }
+      );
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({
@@ -382,24 +399,91 @@ async function startServer() {
   // ==========================================================================
   // 4. SERVER-SIDE VERGRENDELDE ADMIN ENDPOINTS (requireAdmin middleware)
   // ==========================================================================
-  function getServerSystemMetrics() {
-    const ramTotalBytes = os.totalmem();
-    const ramFreeBytes = os.freemem();
-    const ramUsedBytes = Math.max(0, ramTotalBytes - ramFreeBytes);
-    const appRamRssBytes = process.memoryUsage().rss;
+  async function getServerSystemMetrics() {
+    // 1. RAM meting op Linux via /proc/meminfo (MemAvailable houdt rekening met Linux disk cache/buffers, zoals free -h / htop)
+    let ramTotalBytes = os.totalmem();
+    let ramFreeBytes = os.freemem();
+    let ramBuffersCachedBytes = 0;
 
+    try {
+      if (fs.existsSync('/proc/meminfo')) {
+        const meminfo = fs.readFileSync('/proc/meminfo', 'utf8');
+        const parseKb = (key: string): number | null => {
+          const match = meminfo.match(new RegExp(`^${key}:\\s+(\\d+)\\s+kB`, 'm'));
+          return match ? Number(match[1]) * 1024 : null;
+        };
+        const memTotal = parseKb('MemTotal');
+        const memAvailable = parseKb('MemAvailable');
+        const memFree = parseKb('MemFree');
+        const buffers = parseKb('Buffers') || 0;
+        const cached = parseKb('Cached') || 0;
+        const sReclaimable = parseKb('SReclaimable') || 0;
+
+        if (memTotal && memTotal > 0) {
+          ramTotalBytes = memTotal;
+        }
+        ramBuffersCachedBytes = buffers + cached + sReclaimable;
+        if (memAvailable !== null && memAvailable >= 0) {
+          ramFreeBytes = memAvailable;
+        } else if (memFree !== null) {
+          ramFreeBytes = Math.min(ramTotalBytes, memFree + ramBuffersCachedBytes);
+        }
+      }
+    } catch {
+      // Gebruik os.totalmem() / os.freemem() als fallback
+    }
+
+    const ramUsedBytes = Math.max(0, ramTotalBytes - ramFreeBytes);
+
+    // Bereken RAM van alle processen in de container (Node.js + eventuele lokale database-processen)
+    let appRamRssBytes = process.memoryUsage().rss;
+    try {
+      if (fs.existsSync('/proc')) {
+        const entries = fs.readdirSync('/proc');
+        let totalProcRss = 0;
+        for (const entry of entries) {
+          if (/^\d+$/.test(entry)) {
+            try {
+              const statusContent = fs.readFileSync(`/proc/${entry}/status`, 'utf8');
+              const rssMatch = statusContent.match(/^VmRSS:\s+(\d+)\s+kB/m);
+              if (rssMatch) {
+                totalProcRss += Number(rssMatch[1]) * 1024;
+              }
+            } catch {
+              // Proces kan inmiddels beëindigd zijn
+            }
+          }
+        }
+        if (totalProcRss >= appRamRssBytes) {
+          appRamRssBytes = totalProcRss;
+        }
+      }
+    } catch {
+      // Fallback naar process.memoryUsage().rss
+    }
+
+    // 2. Schijfopslag (Disk) meting via fs.statfsSync op /data (of /)
     let diskTotalBytes = 0;
     let diskFreeBytes = 0;
     let diskUsedBytes = 0;
     try {
       const targetPath = fs.existsSync('/data') ? '/data' : '/';
       const stat = fs.statfsSync(targetPath);
-      diskTotalBytes = Number(stat.blocks) * Number(stat.bsize);
-      diskFreeBytes = Number(stat.bavail) * Number(stat.bsize);
-      diskUsedBytes = Math.max(0, diskTotalBytes - diskFreeBytes);
+      const blockSize = Number((stat as any).frsize || stat.bsize || 4096);
+      const totalBlocks = Number(stat.blocks);
+      const freeBlocks = Number(stat.bfree);
+      const availBlocks = Number(stat.bavail);
+
+      diskTotalBytes = totalBlocks * blockSize;
+      diskFreeBytes = availBlocks * blockSize;
+      // Werkelijk gebruikte schijfruimte zoals gerapporteerd door Linux `df`
+      diskUsedBytes = Math.max(0, (totalBlocks - freeBlocks) * blockSize);
     } catch {
       // Fallback indien statfsSync niet beschikbaar is
     }
+
+    // 3. Werkelijke database-opslag op schijf
+    const dbSizeBytes = await centralDb.getDatabaseSizeBytes();
 
     return {
       diskTotalBytes,
@@ -408,13 +492,15 @@ async function startServer() {
       ramTotalBytes,
       ramUsedBytes,
       ramFreeBytes,
+      ramBuffersCachedBytes,
       appRamRssBytes,
+      dbSizeBytes,
       cpuCores: os.cpus()?.length || 1,
       uptimeSeconds: Math.floor(os.uptime()),
     };
   }
 
-  app.get('/api/admin/verify', requireAdmin, (req, res) => {
+  app.get('/api/admin/verify', requireAdmin, async (req, res) => {
     res.json({
       authorized: true,
       admin: {
@@ -422,14 +508,34 @@ async function startServer() {
         email: req.authUser!.email,
         role: req.authUser!.role,
       },
-      systemMetrics: getServerSystemMetrics(),
+      systemMetrics: await getServerSystemMetrics(),
     });
   });
 
-  app.get('/api/admin/metrics', requireAdmin, (_req, res) => {
+  app.get('/api/admin/metrics', requireAdmin, async (_req, res) => {
     res.json({
-      systemMetrics: getServerSystemMetrics(),
+      systemMetrics: await getServerSystemMetrics(),
     });
+  });
+
+  app.put('/api/admin/users/:userId', requireAdmin, async (req, res) => {
+    try {
+      const targetUserId = req.params.userId;
+      const { name, email } = (req.body || {}) as { name?: string; email?: string };
+      const existing = await centralDb.getUserById(targetUserId);
+      const updated = await centralDb.upsertUser({
+        id: targetUserId,
+        email: sanitizeServerString(email, 180, existing?.email || ''),
+        name: sanitizeServerString(name, 100, existing?.name || 'Bierliefhebber'),
+        role: existing?.role,
+        avatarUrl: existing?.avatarUrl,
+      });
+      res.json({ ok: true, user: updated });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Kon gebruiker niet bijwerken.',
+      });
+    }
   });
 
   app.get('/api/admin/export', requireAdmin, async (req, res) => {
@@ -437,7 +543,7 @@ async function startServer() {
       const payload = await centralDb.exportAllData(req.authUser!.email);
       res.json({
         ...payload,
-        systemMetrics: getServerSystemMetrics(),
+        systemMetrics: await getServerSystemMetrics(),
       });
     } catch (err) {
       res.status(500).json({

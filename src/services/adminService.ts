@@ -8,7 +8,15 @@ import {
   DutchProvince,
 } from '../types';
 import { auth, db, collection, collectionGroup, getDocs, setDoc, doc } from '../firebase';
-import { getAllUsers } from './storage';
+import {
+  getAllUsers,
+  getCategories,
+  getBeers,
+  getTastings,
+  getGlasses,
+  syncUserWithServerDatabase,
+} from './storage';
+import { getStoredPubDeals } from './glassDealsService';
 import {
   safeJsonParse,
   sanitizeImageUrl,
@@ -254,7 +262,9 @@ export interface ServerSystemMetrics {
   ramTotalBytes: number;
   ramUsedBytes: number;
   ramFreeBytes: number;
+  ramBuffersCachedBytes?: number;
   appRamRssBytes: number;
+  dbSizeBytes?: number;
   cpuCores: number;
   uptimeSeconds: number;
 }
@@ -429,6 +439,24 @@ export async function updateAdminUserProfileLabel(
   if (cleanEmail && cleanEmail.includes('@')) {
     payload.email = cleanEmail;
   }
+
+  // Sla ook direct op in de centrale server-database
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (auth.currentUser) {
+      const idToken = await auth.currentUser.getIdToken();
+      headers.Authorization = `Bearer ${idToken}`;
+    }
+    await fetch(`/api/admin/users/${encodeURIComponent(targetUserId)}`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify({ name: cleanName, email: cleanEmail }),
+    });
+  } catch {
+    // Niet-blokkerend
+  }
+
   if (isClientFirestoreEnabled()) {
     try {
       const docRef = doc(db, 'users', targetUserId);
@@ -445,6 +473,10 @@ export async function fetchAdminDashboardData(
   if (!isSuperAdmin(adminUser)) {
     throw new Error('Geen toegang: uitsluitend de geverifieerde beheerder heeft toegang tot dit paneel.');
   }
+
+  // 0. Synchroniseer eerst direct het eigen account én alle lokale bieren/notities/glazen met de server-database
+  //    en voeg eventuele dubbele lokale UIDs samen zodat alle 26+ bieren in de database staan.
+  await syncUserWithServerDatabase(adminUser);
 
   // 1. Haal expliciete gebruikersprofielen op uit /users én scan tegelijkertijd
   //    via collectionGroup ALLE subcollecties (categories, beers, tastings, glasses, pubDeals)
@@ -721,6 +753,7 @@ export async function fetchAdminDashboardData(
 
   // Haal alle geregistreerde accounts, collecties én server-statistieken (opslag + RAM) op van de server (/api/admin/export)
   let serverMetrics: ServerSystemMetrics | undefined;
+  const serverExplicitUids = new Set<string>();
   try {
     const headers: Record<string, string> = {};
     if (auth.currentUser) {
@@ -752,6 +785,7 @@ export async function fetchAdminDashboardData(
           const u = entry.user;
           const uid = typeof u?.id === 'string' ? u.id : '';
           if (!uid) continue;
+          serverExplicitUids.add(uid);
           const existing = userMap.get(uid);
           userMap.set(uid, {
             id: uid,
@@ -789,8 +823,128 @@ export async function fetchAdminDashboardData(
         }
       }
     }
+
+    // Fallback als serverMetrics nog niet geladen was
+    if (!serverMetrics) {
+      const metricsRes = await fetch('/api/admin/metrics', {
+        method: 'GET',
+        credentials: 'include',
+        headers,
+      });
+      if (metricsRes.ok) {
+        const mData = (await metricsRes.json()) as { systemMetrics?: ServerSystemMetrics };
+        if (mData.systemMetrics) {
+          serverMetrics = mData.systemMetrics;
+        }
+      }
+    }
   } catch {
     // Niet-blokkerend
+  }
+
+  // Vul óók voor elke bekende gebruiker eventuele lokale collecties uit localStorage aan zodat er nooit 1 bier ontbreekt
+  for (const uid of Array.from(userMap.keys())) {
+    if (!categoriesByUser.has(uid)) categoriesByUser.set(uid, new Map());
+    if (!beersByUser.has(uid)) beersByUser.set(uid, new Map());
+    if (!tastingsByUser.has(uid)) tastingsByUser.set(uid, new Map());
+    if (!glassesByUser.has(uid)) glassesByUser.set(uid, new Map());
+    if (!dealsByUser.has(uid)) dealsByUser.set(uid, new Map());
+
+    for (const c of getCategories(uid)) {
+      categoriesByUser.get(uid)!.set(c.id, c as unknown as Record<string, unknown>);
+    }
+    for (const b of getBeers(uid)) {
+      beersByUser.get(uid)!.set(b.id, b as unknown as Record<string, unknown>);
+    }
+    for (const t of getTastings(uid)) {
+      tastingsByUser.get(uid)!.set(t.id, t as unknown as Record<string, unknown>);
+    }
+    for (const g of getGlasses(uid)) {
+      glassesByUser.get(uid)!.set(g.id, g as unknown as Record<string, unknown>);
+    }
+  }
+
+  // Koppel algemene kroeg-acties ook aan het admin-account indien nog niet gekoppeld
+  if (dealsByUser.has(adminUser.id) && dealsByUser.get(adminUser.id)!.size === 0) {
+    for (const d of getStoredPubDeals()) {
+      dealsByUser.get(adminUser.id)!.set(d.id, d as unknown as Record<string, unknown>);
+    }
+  }
+
+  // DEDUPLICATIE OP E-MAILADRES & EIGENAAR-IDENTITEIT:
+  // Voeg accounts met hetzelfde e-mailadres (of meerdere eigenaar-accounts) samen tot 1 enkel account
+  // inclusief al hun bieren, proefnotities, glazen en categorieën.
+  const mergeUserMapsInto = (sourceUid: string, targetUid: string) => {
+    if (sourceUid === targetUid) return;
+    const allMaps = [categoriesByUser, beersByUser, tastingsByUser, glassesByUser, dealsByUser];
+    for (const mapByUser of allMaps) {
+      const src = mapByUser.get(sourceUid);
+      if (src) {
+        if (!mapByUser.has(targetUid)) mapByUser.set(targetUid, new Map());
+        const dst = mapByUser.get(targetUid)!;
+        src.forEach((val, key) => {
+          if (!dst.has(key)) {
+            dst.set(key, { ...val, userId: targetUid });
+          }
+        });
+        mapByUser.delete(sourceUid);
+      }
+    }
+    const srcUser = userMap.get(sourceUid);
+    const dstUser = userMap.get(targetUid);
+    if (srcUser && dstUser) {
+      if (isPlaceholderEmail(dstUser.email, targetUid) && !isPlaceholderEmail(srcUser.email, sourceUid)) {
+        dstUser.email = srcUser.email;
+      }
+      if (isPlaceholderName(dstUser.name, targetUid) && !isPlaceholderName(srcUser.name, sourceUid)) {
+        dstUser.name = srcUser.name;
+      }
+      if (!dstUser.avatarUrl && srcUser.avatarUrl) {
+        dstUser.avatarUrl = srcUser.avatarUrl;
+      }
+    }
+    userMap.delete(sourceUid);
+  };
+
+  const canonicalUidByEmail = new Map<string, string>();
+  // Registreer eerst het actieve adminUser.id als canonieke ID voor de eigenaar
+  if (!isPlaceholderEmail(adminUser.email, adminUser.id)) {
+    canonicalUidByEmail.set(adminUser.email.trim().toLowerCase(), adminUser.id);
+  }
+
+  for (const [uid, u] of Array.from(userMap.entries())) {
+    if (uid !== adminUser.id && isOwnerEmail(u.email)) {
+      mergeUserMapsInto(uid, adminUser.id);
+      continue;
+    }
+    const cleanEmail = !isPlaceholderEmail(u.email, uid) ? u.email.trim().toLowerCase() : '';
+    if (cleanEmail) {
+      const existingCanonical = canonicalUidByEmail.get(cleanEmail);
+      if (existingCanonical && existingCanonical !== uid) {
+        // Geef voorrang aan het niet-'usr_' ID of het bestaande canonieke ID
+        if (existingCanonical.startsWith('usr_') && !uid.startsWith('usr_') && existingCanonical !== adminUser.id) {
+          mergeUserMapsInto(existingCanonical, uid);
+          canonicalUidByEmail.set(cleanEmail, uid);
+        } else {
+          mergeUserMapsInto(uid, existingCanonical);
+        }
+      } else {
+        canonicalUidByEmail.set(cleanEmail, uid);
+      }
+    }
+  }
+
+  // Filter eventuele lege spook-accounts zonder e-mailadres én zonder items eruit
+  for (const [uid, u] of Array.from(userMap.entries())) {
+    if (uid === adminUser.id) continue;
+    const itemCount =
+      (beersByUser.get(uid)?.size || 0) +
+      (tastingsByUser.get(uid)?.size || 0) +
+      (glassesByUser.get(uid)?.size || 0);
+    const hasValidEmail = !isPlaceholderEmail(u.email, uid);
+    if (!hasValidEmail && itemCount === 0 && !serverExplicitUids.has(uid)) {
+      userMap.delete(uid);
+    }
   }
 
   let beersBytes = 0;

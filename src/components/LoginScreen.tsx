@@ -10,10 +10,8 @@ import {
   updateProfile,
 } from '../firebase';
 import {
-  saveCategories,
-  saveBeers,
-  saveTastings,
-  saveGlasses,
+  loginUser,
+  syncUserWithServerDatabase,
 } from '../services/storage';
 import {
   Beer,
@@ -154,20 +152,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             createdAt: data.user.createdAt || new Date().toISOString(),
           };
 
-          if (data.records) {
-            if (Array.isArray(data.records.categories) && data.records.categories.length > 0) {
-              saveCategories(serverUser.id, data.records.categories);
-            }
-            if (Array.isArray(data.records.beers) && data.records.beers.length > 0) {
-              saveBeers(serverUser.id, data.records.beers);
-            }
-            if (Array.isArray(data.records.tastings) && data.records.tastings.length > 0) {
-              saveTastings(serverUser.id, data.records.tastings);
-            }
-            if (Array.isArray(data.records.glasses) && data.records.glasses.length > 0) {
-              saveGlasses(serverUser.id, data.records.glasses);
-            }
-          }
+          loginUser(serverUser);
+          await syncUserWithServerDatabase(serverUser);
 
           return serverUser;
         }
@@ -175,7 +161,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         // Fallback indien nodig
       }
 
-      if (fallbackAccount) return fallbackAccount;
+      if (fallbackAccount) {
+        loginUser(fallbackAccount);
+        await syncUserWithServerDatabase(fallbackAccount);
+        return fallbackAccount;
+      }
       throw new Error('Kon account niet verifiëren.');
     },
     []

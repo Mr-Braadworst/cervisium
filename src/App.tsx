@@ -31,6 +31,7 @@ import {
   saveUserSettings,
   DEFAULT_USER_SETTINGS,
   ImportedBackupPayload,
+  syncUserWithServerDatabase,
 } from './services/storage';
 
 import {
@@ -82,6 +83,15 @@ import { SettingsView } from './components/SettingsView';
 import { AdminPanelView } from './components/AdminPanelView';
 import { isSuperAdmin, AdminUserSummary } from './services/adminService';
 import { Eye, ShieldCheck, ArrowLeft } from 'lucide-react';
+
+function isClientFirestoreEnabled(): boolean {
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
+  if (env.VITE_USE_FIRESTORE === 'false') return false;
+  if (typeof window !== 'undefined' && (window as unknown as { __BIERLOG_FIREBASE_CONFIG__?: unknown }).__BIERLOG_FIREBASE_CONFIG__) {
+    return env.VITE_USE_FIRESTORE === 'true';
+  }
+  return true;
+}
 
 export default function App() {
   const [authenticatedUser, setAuthenticatedUser] = useState<UserAccount | null>(() => getActiveUser());
@@ -167,39 +177,22 @@ export default function App() {
         setActiveUserState(initialAccount);
         reloadDataForUser(initialAccount);
 
-        // Synchroniseer Firebase ID-token ook met de server-sessie en haal opgeslagen server-data op
+        // Synchroniseer Firebase ID-token met de server-sessie en voeg lokale + server-collecties samen
         try {
           const idToken = await fbUser.getIdToken();
-          const res = await fetch('/api/auth/google', {
+          await fetch('/api/auth/google', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ credential: idToken }),
           });
-          if (res.ok) {
-            const data = await res.json();
-            if (data?.records) {
-              if (Array.isArray(data.records.categories) && data.records.categories.length > 0) {
-                saveCategories(fbUser.uid, data.records.categories);
-              }
-              if (Array.isArray(data.records.beers) && data.records.beers.length > 0) {
-                saveBeers(fbUser.uid, data.records.beers);
-              }
-              if (Array.isArray(data.records.tastings) && data.records.tastings.length > 0) {
-                saveTastings(fbUser.uid, data.records.tastings);
-              }
-              if (Array.isArray(data.records.glasses) && data.records.glasses.length > 0) {
-                saveGlasses(fbUser.uid, data.records.glasses);
-              }
-              reloadDataForUser(initialAccount);
-            }
-          }
+          await syncUserWithServerDatabase(initialAccount);
+          reloadDataForUser(initialAccount);
         } catch {
           // Negeer als server-sync tijdelijk niet bereikbaar is
         }
 
-        const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
-        if (env.VITE_USE_FIRESTORE !== 'false') {
+        if (isClientFirestoreEnabled()) {
           const syncedAccount = await fetchAndSyncGoogleUserProfile(fbUser, stored);
           loginUser(syncedAccount);
           setAuthenticatedUser(syncedAccount);
@@ -209,7 +202,7 @@ export default function App() {
         }
       } else {
         setFirebaseUid(null);
-        // Controleer of er een actieve Docker PostgreSQL server-sessie (HttpOnly cookie) bestaat
+        // Controleer of er een actieve server-sessie (HttpOnly cookie) bestaat
         try {
           const res = await fetch('/api/me', {
             method: 'GET',
@@ -227,21 +220,8 @@ export default function App() {
                 avatarUrl: data.user.avatarUrl,
                 createdAt: data.user.createdAt || new Date().toISOString(),
               };
-              if (data.records) {
-                if (Array.isArray(data.records.categories) && data.records.categories.length > 0) {
-                  saveCategories(serverAccount.id, data.records.categories);
-                }
-                if (Array.isArray(data.records.beers) && data.records.beers.length > 0) {
-                  saveBeers(serverAccount.id, data.records.beers);
-                }
-                if (Array.isArray(data.records.tastings) && data.records.tastings.length > 0) {
-                  saveTastings(serverAccount.id, data.records.tastings);
-                }
-                if (Array.isArray(data.records.glasses) && data.records.glasses.length > 0) {
-                  saveGlasses(serverAccount.id, data.records.glasses);
-                }
-              }
               loginUser(serverAccount);
+              await syncUserWithServerDatabase(serverAccount);
               setAuthenticatedUser(serverAccount);
               setActiveUserState(serverAccount);
               reloadDataForUser(serverAccount);
@@ -263,8 +243,7 @@ export default function App() {
 
   // Firestore Real-Time Subscriptions voor de eigen gebruiker OF wanneer de geverifieerde Admin meekijkt met een andere gebruiker
   useEffect(() => {
-    const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
-    if (env.VITE_USE_FIRESTORE === 'false') return;
+    if (!isClientFirestoreEnabled()) return;
 
     const canSubscribe =
       Boolean(activeUser && firebaseUid) &&
@@ -347,7 +326,10 @@ export default function App() {
     setAuthenticatedUser(user);
     setActiveUserState(user);
     reloadDataForUser(user);
-    if (auth.currentUser && auth.currentUser.uid === user.id) {
+    syncUserWithServerDatabase(user)
+      .then(() => reloadDataForUser(user))
+      .catch(() => {});
+    if (isClientFirestoreEnabled() && auth.currentUser && auth.currentUser.uid === user.id) {
       syncUserProfileFirestore(user).catch((e) =>
         console.warn('User profile sync notice:', e)
       );

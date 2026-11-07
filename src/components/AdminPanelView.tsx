@@ -502,7 +502,9 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                   const diskTotal = stats.serverMetrics.diskTotalBytes || stats.quotaBytes;
                   const diskUsed = stats.serverMetrics.diskUsedBytes || stats.totalBytesUsed;
                   const diskFree = stats.serverMetrics.diskFreeBytes || stats.totalBytesRemaining;
-                  const diskPct = diskTotal > 0 ? Math.min(100, (diskUsed / diskTotal) * 100) : 0;
+                  const effectiveTotal = diskUsed + diskFree > 0 ? diskUsed + diskFree : diskTotal;
+                  const diskPct =
+                    effectiveTotal > 0 ? Math.min(100, (diskUsed / effectiveTotal) * 100) : 0;
 
                   return (
                     <div className="p-5 rounded-2xl bg-zinc-950/90 border border-amber-500/30 space-y-3">
@@ -525,7 +527,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                           {formatByMode(diskUsed, false)}
                         </div>
                         <div className="text-xs text-zinc-400 font-mono">
-                          van {formatByMode(diskTotal, true)} totaal
+                          van {formatByMode(diskTotal, true)} schijfruimte
                         </div>
                       </div>
 
@@ -538,7 +540,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
 
                       <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
                         <span>
-                          Nog vrij: <strong className="text-emerald-300">{formatByMode(diskFree, true)}</strong>
+                          Beschikbaar: <strong className="text-emerald-300">{formatByMode(diskFree, true)}</strong>
                         </span>
                         <span>
                           In MB: <strong className="text-zinc-300">{formatStorageMB(diskFree, 0)} vrij</strong>
@@ -590,10 +592,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
 
                       <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
                         <span>
-                          Vrij RAM: <strong className="text-emerald-300">{formatByMode(ramFree, false)}</strong>
+                          Beschikbaar RAM: <strong className="text-emerald-300">{formatByMode(ramFree, false)}</strong>
                         </span>
                         <span>
-                          Cervisium App RAM: <strong className="text-amber-300">{formatStorageMB(appRss, 1)}</strong>
+                          Cervisium Proces RAM: <strong className="text-amber-300">{formatStorageMB(appRss, 1)}</strong>
                         </span>
                       </div>
                     </div>
@@ -607,7 +609,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               {/* App Data Gebruikt */}
               <div className="p-5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-bold text-amber-400 uppercase tracking-wider">
-                  <span>Cervisium App Data</span>
+                  <span>Cervisium Collectie &amp; Data</span>
                   <Database className="w-4 h-4" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black text-zinc-100 font-mono">
@@ -615,11 +617,17 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 </div>
                 <div className="text-xs text-zinc-400 flex items-center justify-between pt-1">
                   <span>
-                    In GB: <strong className="text-zinc-200">{formatStorageGB(stats.totalBytesUsed, 3)}</strong>
+                    Collectie: <strong className="text-zinc-200">{formatStorageMB(stats.totalBytesUsed, 2)}</strong>
                   </span>
-                  <span className="text-[11px] text-zinc-400">
-                    In MB: <strong className="text-zinc-300">{formatStorageMB(stats.totalBytesUsed, 2)}</strong>
-                  </span>
+                  {stats.serverMetrics?.dbSizeBytes && stats.serverMetrics.dbSizeBytes > 0 ? (
+                    <span className="text-[11px] text-amber-300 font-semibold">
+                      DB op schijf: {formatStorageMB(stats.serverMetrics.dbSizeBytes, 1)}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-zinc-400">
+                      In GB: <strong className="text-zinc-300">{formatStorageGB(stats.totalBytesUsed, 3)}</strong>
+                    </span>
+                  )}
                 </div>
               </div>
 

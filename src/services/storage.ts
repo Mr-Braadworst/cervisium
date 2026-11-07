@@ -1,4 +1,5 @@
 import { Beer, Category, UserAccount, Tasting, BeerSession, BeerGlass, UserSettings } from '../types';
+import { auth } from '../firebase';
 import {
   generateSecureId,
   isValidEntityId,
@@ -46,6 +47,125 @@ export function getActiveUser(): UserAccount | null {
   return users.find(u => u.id === storedId) || null;
 }
 
+function isPlaceholderUserEmail(email: string | undefined | null): boolean {
+  if (!email) return true;
+  const lower = email.trim().toLowerCase();
+  return !lower || !lower.includes('@') || lower === 'gebruiker@bierlog.nl';
+}
+
+/**
+ * Voegt eventuele dubbele lokale accounts van dezelfde gebruiker (bijv. na wisselen tussen
+ * server-login en Firebase login met hetzelfde e-mailadres) samen zodat bieren, proefnotities,
+ * glazen en categorieën nooit verspreid raken over 2 ID's en een account nooit dubbel verschijnt.
+ */
+export function consolidateLocalAccountsForUser(targetUser: UserAccount): void {
+  if (!targetUser || !isValidEntityId(targetUser.id)) return;
+  const targetId = targetUser.id;
+  const targetEmail = !isPlaceholderUserEmail(targetUser.email)
+    ? targetUser.email.trim().toLowerCase()
+    : '';
+
+  try {
+    const rawList = localStorage.getItem(USERS_STORAGE_KEY);
+    const parsedUsers = rawList ? safeJsonParse<unknown[]>(rawList) : [];
+    const existingUsers: UserAccount[] = Array.isArray(parsedUsers)
+      ? parsedUsers
+          .filter((u): u is Record<string, unknown> =>
+            Boolean(u && typeof u === 'object' && isValidEntityId((u as any).id))
+          )
+          .map((u) => ({
+            id: String(u.id),
+            name: sanitizeString(u.name, 100, 'Bierliefhebber'),
+            googleName: u.googleName ? sanitizeString(u.googleName, 100) : undefined,
+            email: sanitizeString(u.email, 180, 'gebruiker@bierlog.nl'),
+            role: u.role === 'admin' ? 'admin' : u.role === 'user' ? 'user' : undefined,
+            avatarUrl: sanitizeImageUrl(u.avatarUrl),
+            createdAt: sanitizeString(u.createdAt, 60, new Date().toISOString()),
+          }))
+      : [];
+
+    // Zoek alle andere UIDs die óf hetzelfde e-mailadres hebben óf wees-sleutels zijn van dit apparaat
+    const uidsToMerge = new Set<string>();
+    const otherDistinctEmailUids = new Set<string>();
+
+    for (const u of existingUsers) {
+      if (u.id === targetId) continue;
+      const uEmail = !isPlaceholderUserEmail(u.email) ? u.email.trim().toLowerCase() : '';
+      if (targetEmail && uEmail === targetEmail) {
+        uidsToMerge.add(u.id);
+      } else if (!uEmail) {
+        uidsToMerge.add(u.id);
+      } else {
+        otherDistinctEmailUids.add(u.id);
+      }
+    }
+
+    // Controleer ook localStorage sleutels (bierlog_beers_<uid> etc.) die niet aan een ander e-mailadres toebehoren
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      const m = k.match(/^bierlog_(?:beers|categories|glasses|tastings|sessions|settings)_([a-zA-Z0-9_-]+)$/);
+      if (m && m[1] && m[1] !== targetId && !otherDistinctEmailUids.has(m[1])) {
+        uidsToMerge.add(m[1]);
+      }
+    }
+
+    if (uidsToMerge.size > 0) {
+      let mergedCats = getCategories(targetId);
+      let mergedBeers = getBeers(targetId);
+      let mergedTastings = getTastings(targetId);
+      let mergedGlasses = getGlasses(targetId);
+      let mergedSessions = getBeerSessions(targetId);
+
+      for (const oldUid of uidsToMerge) {
+        const oldCats = getCategories(oldUid);
+        const oldBeers = getBeers(oldUid).map((b) => ({ ...b, userId: targetId }));
+        const oldTastings = getTastings(oldUid);
+        const oldGlasses = getGlasses(oldUid).map((g) => ({ ...g, userId: targetId }));
+        const oldSessions = getBeerSessions(oldUid).map((s) => ({ ...s, userId: targetId }));
+
+        if (oldCats.length > 0) mergedCats = deduplicateById([...oldCats, ...mergedCats]);
+        if (oldBeers.length > 0) mergedBeers = deduplicateById([...oldBeers, ...mergedBeers]);
+        if (oldTastings.length > 0) mergedTastings = deduplicateById([...oldTastings, ...mergedTastings]);
+        if (oldGlasses.length > 0) mergedGlasses = deduplicateById([...oldGlasses, ...mergedGlasses]);
+        if (oldSessions.length > 0) mergedSessions = deduplicateById([...oldSessions, ...mergedSessions]);
+
+        // Verwijder oude dubbele localStorage sleutels zodat ze nooit als spook-account in het Admin Panel verschijnen
+        localStorage.removeItem(`bierlog_categories_${oldUid}`);
+        localStorage.removeItem(`bierlog_beers_${oldUid}`);
+        localStorage.removeItem(`bierlog_tastings_${oldUid}`);
+        localStorage.removeItem(`bierlog_glasses_${oldUid}`);
+        localStorage.removeItem(`bierlog_sessions_${oldUid}`);
+        localStorage.removeItem(`bierlog_settings_${oldUid}`);
+      }
+
+      localStorage.setItem(`bierlog_categories_${targetId}`, JSON.stringify(mergedCats));
+      localStorage.setItem(`bierlog_beers_${targetId}`, JSON.stringify(mergedBeers));
+      localStorage.setItem(`bierlog_tastings_${targetId}`, JSON.stringify(mergedTastings));
+      localStorage.setItem(`bierlog_glasses_${targetId}`, JSON.stringify(mergedGlasses));
+      localStorage.setItem(`bierlog_sessions_${targetId}`, JSON.stringify(mergedSessions));
+    }
+
+    // Dedupliceer de gebruikerslijst op ID én op e-mailadres
+    const cleanedUsers: UserAccount[] = [];
+    const seenEmails = new Set<string>();
+    const seenIds = new Set<string>();
+
+    const allCandidates = [targetUser, ...existingUsers.filter((u) => !uidsToMerge.has(u.id))];
+    for (const u of allCandidates) {
+      if (!u || !isValidEntityId(u.id) || seenIds.has(u.id)) continue;
+      const uEmail = !isPlaceholderUserEmail(u.email) ? u.email.trim().toLowerCase() : '';
+      if (uEmail && seenEmails.has(uEmail)) continue;
+      seenIds.add(u.id);
+      if (uEmail) seenEmails.add(uEmail);
+      cleanedUsers.push(u);
+    }
+
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(cleanedUsers));
+  } catch (e) {
+    console.warn('Consolidatie lokale accounts melding:', e);
+  }
+}
+
 export function setActiveUser(user: UserAccount | null): void {
   if (!user || !isValidEntityId(user.id)) {
     localStorage.removeItem(ACTIVE_USER_ID_KEY);
@@ -60,15 +180,8 @@ export function setActiveUser(user: UserAccount | null): void {
     avatarUrl: sanitizeImageUrl(user.avatarUrl),
     createdAt: sanitizeString(user.createdAt, 60, new Date().toISOString()),
   };
-  const existing = getAllUsers();
-  const idx = existing.findIndex(u => u.id === sanitizedUser.id);
-  if (idx >= 0) {
-    existing[idx] = { ...existing[idx], ...sanitizedUser };
-  } else {
-    existing.push(sanitizedUser);
-  }
+  consolidateLocalAccountsForUser(sanitizedUser);
   try {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(existing));
     localStorage.setItem(ACTIVE_USER_ID_KEY, sanitizedUser.id);
   } catch (e) {
     console.warn('localStorage setActiveUser quota notice:', e);
@@ -90,9 +203,9 @@ export function getAllUsers(): UserAccount[] {
     if (!raw) return [];
     const parsed = safeJsonParse<unknown[]>(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const mapped = parsed
       .filter((u): u is Record<string, unknown> => Boolean(u && typeof u === 'object' && isValidEntityId((u as any).id)))
-      .map((u) => ({
+      .map((u): UserAccount => ({
         id: String(u.id),
         name: sanitizeString(u.name, 100, 'Bierliefhebber'),
         googleName: u.googleName ? sanitizeString(u.googleName, 100) : undefined,
@@ -101,6 +214,20 @@ export function getAllUsers(): UserAccount[] {
         avatarUrl: sanitizeImageUrl(u.avatarUrl),
         createdAt: sanitizeString(u.createdAt, 60, new Date().toISOString()),
       }));
+
+    // Dedupliceer op e-mailadres zodat hetzelfde account nooit 2x terugkomt
+    const out: UserAccount[] = [];
+    const seenEmails = new Set<string>();
+    const seenIds = new Set<string>();
+    for (const u of mapped) {
+      if (seenIds.has(u.id)) continue;
+      const emailLower = !isPlaceholderUserEmail(u.email) ? u.email.trim().toLowerCase() : '';
+      if (emailLower && seenEmails.has(emailLower)) continue;
+      seenIds.add(u.id);
+      if (emailLower) seenEmails.add(emailLower);
+      out.push(u);
+    }
+    return out;
   } catch {
     return [];
   }
@@ -808,9 +935,49 @@ export function saveUserSettings(userId: string, settings: UserSettings): UserSe
   return sanitized;
 }
 
-// --- Automatische Synchronisatie met Eigen Docker PostgreSQL Server Database ---
+// --- Automatische Synchronisatie met Centrale Server Database ---
 
 const syncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+async function buildServerAuthHeaders(includeJsonContentType = true): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  if (includeJsonContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+  try {
+    if (auth.currentUser) {
+      const idToken = await auth.currentUser.getIdToken();
+      if (idToken) {
+        headers.Authorization = `Bearer ${idToken}`;
+      }
+    }
+  } catch {
+    // Fallback naar sessie-cookie
+  }
+  return headers;
+}
+
+export async function pushUserRecordsToServerNow(userId: string): Promise<boolean> {
+  if (!isValidEntityId(userId)) return false;
+  try {
+    const headers = await buildServerAuthHeaders(true);
+    const res = await fetch('/api/me/records/sync', {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify({
+        categories: getCategories(userId),
+        beers: getBeers(userId),
+        tastings: getTastings(userId),
+        glasses: getGlasses(userId),
+        sessions: getBeerSessions(userId),
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export function queueServerDatabaseSync(userId: string): void {
   if (!isValidEntityId(userId)) return;
@@ -822,65 +989,93 @@ export function queueServerDatabaseSync(userId: string): void {
 
   const timer = setTimeout(async () => {
     syncTimers.delete(userId);
-    try {
-      await fetch('/api/me/records/sync', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          categories: getCategories(userId),
-          beers: getBeers(userId),
-          tastings: getTastings(userId),
-          glasses: getGlasses(userId),
-        }),
-      });
-    } catch {
-      // Negeer netwerkfouten tijdens achtergrond-sync
-    }
-  }, 600);
+    await pushUserRecordsToServerNow(userId);
+  }, 400);
 
   syncTimers.set(userId, timer);
 }
 
-export async function hydrateUserFromServerDatabase(userId: string): Promise<boolean> {
-  if (!isValidEntityId(userId)) return false;
+/**
+ * Volledige tweerichting-synchronisatie tussen de browser en de server-database:
+ * 1) Voegt eventuele lokale dubbele UIDs voor dezelfde gebruiker samen
+ * 2) Haalt server-records op via /api/me en voegt ze samen met lokale records (zodat er nooit 1 bier verloren gaat)
+ * 3) Pusht de complete samengevoegde collectie (bijv. alle 26 bieren) direct naar /api/me/records/sync
+ */
+export async function syncUserWithServerDatabase(user: UserAccount): Promise<boolean> {
+  if (!user || !isValidEntityId(user.id)) return false;
+  consolidateLocalAccountsForUser(user);
+  const userId = user.id;
+
   try {
+    const getHeaders = await buildServerAuthHeaders(false);
     const res = await fetch('/api/me', {
       method: 'GET',
       credentials: 'include',
+      headers: getHeaders,
     });
-    if (!res.ok) return false;
-    const data = (await res.json()) as {
-      records?: {
-        categories?: Category[];
-        beers?: Beer[];
-        tastings?: Tasting[];
-        glasses?: BeerGlass[];
-      };
-    };
-    if (!data.records) return false;
 
-    let updated = false;
-    if (Array.isArray(data.records.categories) && data.records.categories.length > 0 && getCategories(userId).length === 0) {
-      localStorage.setItem(`bierlog_categories_${userId}`, JSON.stringify(data.records.categories));
-      updated = true;
+    let localCats = getCategories(userId);
+    let localBeers = getBeers(userId);
+    let localTastings = getTastings(userId);
+    let localGlasses = getGlasses(userId);
+
+    if (res.ok) {
+      const data = (await res.json()) as {
+        records?: {
+          categories?: unknown[];
+          beers?: unknown[];
+          tastings?: unknown[];
+          glasses?: unknown[];
+        };
+      };
+
+      if (data.records) {
+        const serverCats = Array.isArray(data.records.categories)
+          ? data.records.categories
+              .map((c) => sanitizeImportedCategory(c))
+              .filter((c): c is Category => c !== null)
+          : [];
+        const serverBeers = Array.isArray(data.records.beers)
+          ? data.records.beers
+              .map((b) => sanitizeImportedBeer(b, userId))
+              .filter((b): b is Beer => b !== null)
+          : [];
+        const serverTastings = Array.isArray(data.records.tastings)
+          ? data.records.tastings
+              .map((t) => sanitizeImportedTasting(t))
+              .filter((t): t is Tasting => t !== null)
+          : [];
+        const serverGlasses = Array.isArray(data.records.glasses)
+          ? data.records.glasses
+              .map((g) => sanitizeImportedGlass(g, userId))
+              .filter((g): g is BeerGlass => g !== null)
+          : [];
+
+        // Merge server + lokaal (lokale wijzigingen krijgen voorrang bij gelijke ID)
+        localCats = deduplicateById([...serverCats, ...localCats]);
+        localBeers = deduplicateById([...serverBeers, ...localBeers]);
+        localTastings = deduplicateById([...serverTastings, ...localTastings]);
+        localGlasses = deduplicateById([...serverGlasses, ...localGlasses]);
+
+        localStorage.setItem(`bierlog_categories_${userId}`, JSON.stringify(localCats));
+        localStorage.setItem(`bierlog_beers_${userId}`, JSON.stringify(localBeers));
+        localStorage.setItem(`bierlog_tastings_${userId}`, JSON.stringify(localTastings));
+        localStorage.setItem(getGlassesKey(userId), JSON.stringify(localGlasses));
+      }
     }
-    if (Array.isArray(data.records.beers) && data.records.beers.length > 0 && getBeers(userId).length === 0) {
-      localStorage.setItem(`bierlog_beers_${userId}`, JSON.stringify(data.records.beers));
-      updated = true;
-    }
-    if (Array.isArray(data.records.tastings) && data.records.tastings.length > 0 && getTastings(userId).length === 0) {
-      localStorage.setItem(`bierlog_tastings_${userId}`, JSON.stringify(data.records.tastings));
-      updated = true;
-    }
-    if (Array.isArray(data.records.glasses) && data.records.glasses.length > 0 && getGlasses(userId).length === 0) {
-      localStorage.setItem(getGlassesKey(userId), JSON.stringify(data.records.glasses));
-      updated = true;
-    }
-    return updated;
+
+    // Push de volledige samengevoegde collectie direct naar de server-database
+    await pushUserRecordsToServerNow(userId);
+    return true;
   } catch {
     return false;
   }
+}
+
+export async function hydrateUserFromServerDatabase(userId: string): Promise<boolean> {
+  const active = getActiveUser();
+  if (active && active.id === userId) {
+    return syncUserWithServerDatabase(active);
+  }
+  return false;
 }
