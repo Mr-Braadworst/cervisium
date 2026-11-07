@@ -83,6 +83,7 @@ import { ExtrasHubView } from './components/ExtrasHubView';
 import { SettingsView } from './components/SettingsView';
 import { AdminPanelView } from './components/AdminPanelView';
 import { isSuperAdmin, AdminUserSummary } from './services/adminService';
+import { setLanguagePreference } from './utils/i18n';
 import { Eye, ShieldCheck, ArrowLeft } from 'lucide-react';
 
 function isClientFirestoreEnabled(): boolean {
@@ -144,6 +145,11 @@ export default function App() {
     document.documentElement.classList.toggle('light-mode', isLight);
     document.body.classList.toggle('light-mode', isLight);
   }, [activeUser, userSettings.lightMode]);
+
+  // Pas de gekozen taalvoorkeur ('auto' of handmatig gekozen taal) direct toe op het document
+  useEffect(() => {
+    setLanguagePreference(userSettings.language || 'auto');
+  }, [userSettings.language]);
 
   // Listen to Firebase Auth state (Zero-Trust: synchroniseert met echte Google Auth sessie)
   const [firebaseUid, setFirebaseUid] = useState<string | null>(() => auth.currentUser?.uid || null);

@@ -705,6 +705,318 @@ const TRANSLATIONS: Record<string, TranslationEntry> = {
     fr: 'Analyse...',
     es: 'Escaneando...',
   },
+  'Beheer je voorkeuren, weergave-opties, profiel en back-ups voor Cervisium': {
+    en: 'Manage your preferences, display options, profile and backups for Cervisium',
+    de: 'Verwalte deine Einstellungen, Anzeigeoptionen, dein Profil und Backups für Cervisium',
+    fr: 'Gérez vos préférences, options d’affichage, profil et sauvegardes pour Cervisium',
+    es: 'Administra tus preferencias, opciones de visualización, perfil y copias de seguridad para Cervisium',
+  },
+  'Herstel standaard': {
+    en: 'Reset defaults',
+    de: 'Standard wiederherstellen',
+    fr: 'Réinitialiser',
+    es: 'Restablecer valores',
+  },
+  'Standaardinstellingen zijn hersteld!': {
+    en: 'Default settings have been restored!',
+    de: 'Standardeinstellungen wurden wiederhergestellt!',
+    fr: 'Les paramètres par défaut ont été restaurés !',
+    es: '¡Se han restablecido los ajustes predeterminados!',
+  },
+  'Taal & Regio': {
+    en: 'Language & Region',
+    de: 'Sprache & Region',
+    fr: 'Langue & Région',
+    es: 'Idioma y Región',
+  },
+  'Kies de taal van de app of volg automatisch je browser- en telefooninstellingen (merknamen blijven ongewijzigd)': {
+    en: 'Choose the app language or automatically follow your browser and phone settings (brand names remain unchanged)',
+    de: 'Wähle die App-Sprache oder folge automatisch deinen Browser- und Telefoneinstellungen (Markennamen bleiben unverändert)',
+    fr: 'Choisissez la langue de l’application ou suivez automatiquement votre navigateur/téléphone (les marques restent inchangées)',
+    es: 'Elige el idioma de la aplicación o sigue automáticamente tu navegador o teléfono (las marcas no cambian)',
+  },
+  'App-taal': {
+    en: 'App language',
+    de: 'App-Sprache',
+    fr: 'Langue de l’application',
+    es: 'Idioma de la aplicación',
+  },
+  'Automatisch (Browser / Telefoon)': {
+    en: 'Automatic (Browser / Phone)',
+    de: 'Automatisch (Browser / Telefon)',
+    fr: 'Automatique (Navigateur / Téléphone)',
+    es: 'Automático (Navegador / Teléfono)',
+  },
+  'Automatisch': {
+    en: 'Automatic',
+    de: 'Automatisch',
+    fr: 'Automatique',
+    es: 'Automático',
+  },
+  'Weergave & Navigatiebalk': {
+    en: 'Display & Navigation Bar',
+    de: 'Anzeige & Navigationsleiste',
+    fr: 'Affichage & Barre de Navigation',
+    es: 'Pantalla y Barra de Navegación',
+  },
+  'Weergave, Thema & Navigatiebalk': {
+    en: 'Display, Theme & Navigation Bar',
+    de: 'Anzeige, Thema & Navigationsleiste',
+    fr: 'Affichage, Thème & Barre de Navigation',
+    es: 'Pantalla, Tema y Barra de Navegación',
+  },
+  'Schakel Licht Modus (wit thema) in of pas de knoppen en tellers in de bovenbalk aan': {
+    en: 'Enable Light Mode (white theme) or customize the buttons and counters in the top bar',
+    de: 'Aktiviere den Hellen Modus (weißes Thema) oder passe die Buttons und Zähler in der oberen Leiste an',
+    fr: 'Activez le Mode Clair (thème blanc) ou personnalisez les boutons et compteurs de la barre supérieure',
+    es: 'Activa el Modo Claro (tema blanco) o personaliza los botones y contadores en la barra superior',
+  },
+  'Standaard': {
+    en: 'Default',
+    de: 'Standard',
+    fr: 'Par défaut',
+    es: 'Predeterminado',
+  },
+  'Licht Modus (Wit Thema)': {
+    en: 'Light Mode (White Theme)',
+    de: 'Heller Modus (Weißes Thema)',
+    fr: 'Mode Clair (Thème Blanc)',
+    es: 'Modo Claro (Tema Blanco)',
+  },
+  'Wit thema actief': {
+    en: 'White theme active',
+    de: 'Weißes Thema aktiv',
+    fr: 'Thème blanc actif',
+    es: 'Tema blanco activo',
+  },
+  'Donker thema actief': {
+    en: 'Dark theme active',
+    de: 'Dunkles Thema aktiv',
+    fr: 'Thème sombre actif',
+    es: 'Tema oscuro activo',
+  },
+  'Activeert een helder wit thema voor de volledige applicatie in plaats van de donkere modus.': {
+    en: 'Activates a bright white theme for the entire application instead of dark mode.',
+    de: 'Aktiviert ein helles weißes Thema für die gesamte Anwendung anstelle des dunklen Modus.',
+    fr: 'Active un thème blanc lumineux pour toute l’application au lieu du mode sombre.',
+    es: 'Activa un tema blanco brillante para toda la aplicación en lugar del modo oscuro.',
+  },
+  'Bepaal het kleurthema en welke onderdelen en tellers zichtbaar zijn in je menu': {
+    en: 'Choose the color theme and which sections and counters are visible in your menu',
+    de: 'Bestimme das Farbschema und welche Bereiche und Zähler im Menü sichtbar sind',
+    fr: 'Choisissez le thème de couleur et les éléments visibles dans votre menu',
+    es: 'Elige el tema de color y qué secciones y contadores son visibles en tu menú',
+  },
+  'Lichte Modus (Wit Thema)': {
+    en: 'Light Mode (White Theme)',
+    de: 'Heller Modus (Weißes Thema)',
+    fr: 'Mode Clair (Thème Blanc)',
+    es: 'Modo Claro (Tema Blanco)',
+  },
+  'Donkere Modus actief': {
+    en: 'Dark Mode active',
+    de: 'Dunkler Modus aktiv',
+    fr: 'Mode Sombre actif',
+    es: 'Modo Oscuro activo',
+  },
+  'Schakel over tussen het donkere kroeg-thema en een fris wit daglicht-thema.': {
+    en: 'Switch between the dark pub theme and a crisp white daylight theme.',
+    de: 'Wechsle zwischen dem dunklen Kneipen-Thema und einem hellen Tageslicht-Thema.',
+    fr: 'Basculez entre le thème sombre et un thème clair lumineux.',
+    es: 'Cambia entre el tema oscuro de bar y un tema claro de día.',
+  },
+  'Melding-icoontje op de “Extra’s” knop tonen': {
+    en: 'Show notification badge on the “Extras” button',
+    de: 'Benachrichtigungs-Badge auf dem „Extras“-Button anzeigen',
+    fr: 'Afficher le badge de notification sur le bouton « Extras »',
+    es: 'Mostrar insignia de notificación en el botón «Extras»',
+  },
+  'Melding-icoontje op de "Extra\'s" knop tonen': {
+    en: 'Show notification badge on the "Extras" button',
+    de: 'Benachrichtigungs-Badge auf dem „Extras“-Button anzeigen',
+    fr: 'Afficher le badge de notification sur le bouton « Extras »',
+    es: 'Mostrar insignia de notificación en el botón «Extras»',
+  },
+  'Standaard uitgeschakeld. Als je dit aanzet, verschijnt het groene aantal actieve kroegacties op de Extra\'s knop.': {
+    en: 'Disabled by default. When enabled, shows the green count of active pub deals on the Extras button.',
+    de: 'Standardmäßig deaktiviert. Wenn aktiviert, wird die grüne Anzahl aktiver Kneipen-Aktionen auf dem Extras-Button angezeigt.',
+    fr: 'Désactivé par défaut. Affiche le nombre d’offres actives sur le bouton Extras.',
+    es: 'Desactivado por defecto. Muestra el número verde de ofertas activas en el botón Extras.',
+  },
+  'Collectie-tellers in navigatiebalk tonen': {
+    en: 'Show collection counters in navigation bar',
+    de: 'Sammlungszähler in der Navigationsleiste anzeigen',
+    fr: 'Afficher les compteurs de collection dans la barre de navigation',
+    es: 'Mostrar contadores de colección en la barra de navegación',
+  },
+  'Toont het totaal aantal geproefde bieren en glazen als badge op de menuknoppen.': {
+    en: 'Shows the total number of tasted beers and glasses as a badge on the menu buttons.',
+    de: 'Zeigt die Gesamtanzahl der probierten Biere und Gläser als Badge auf den Menü-Buttons.',
+    fr: 'Affiche le nombre total de bières et de verres sous forme de badge sur les boutons du menu.',
+    es: 'Muestra el total de cervezas probadas y vasos como insignia en los botones del menú.',
+  },
+  '“Extra’s” knop in de navigatiebalk tonen': {
+    en: 'Show “Extras” button in navigation bar',
+    de: '„Extras“-Button in der Navigationsleiste anzeigen',
+    fr: 'Afficher le bouton « Extras » dans la barre de navigation',
+    es: 'Mostrar el botón «Extras» en la barra de navegación',
+  },
+  '"Extra\'s" knop in de navigatiebalk tonen': {
+    en: 'Show "Extras" button in navigation bar',
+    de: '„Extras“-Button in der Navigationsleiste anzeigen',
+    fr: 'Afficher le bouton « Extras » dans la barre de navigation',
+    es: 'Mostrar el botón «Extras» en la barra de navegación',
+  },
+  'Geeft direct toegang tot Bier & Kroeg Acties NL en de Live Bier Counter in het hoofdmenu.': {
+    en: 'Provides direct access to Beer & Pub Deals and the Live Beer Counter in the main menu.',
+    de: 'Bietet direkten Zugriff auf Bier- & Kneipen-Aktionen und den Live-Bierzähler im Hauptmenü.',
+    fr: 'Donne un accès direct aux Offres Bières & Bars et au Compteur de Bières dans le menu principal.',
+    es: 'Da acceso directo a Ofertas de Cerveza y Bares y al Contador de Cervezas en el menú principal.',
+  },
+  'Deal Scanner balk tonen bij Bier & Kroeg Acties': {
+    en: 'Show Deal Scanner bar in Beer & Pub Deals',
+    de: 'Deal-Scanner-Leiste bei Bier- & Kneipen-Aktionen anzeigen',
+    fr: 'Afficher la barre Deal Scanner dans Offres Bières & Bars',
+    es: 'Mostrar barra de Escáner de Ofertas en Ofertas de Cerveza y Bares',
+  },
+  'Toont de 1-Klik Deal Scanner bovenaan het acties-overzicht om nieuwe kroegdeals te zoeken.': {
+    en: 'Shows the 1-Click Deal Scanner at the top of the deals overview to search for new pub deals.',
+    de: 'Zeigt den 1-Klick-Deal-Scanner oben in der Aktionsübersicht an, um neue Kneipen-Deals zu suchen.',
+    fr: 'Affiche le scanner d’offres en 1 clic en haut de l’aperçu des offres.',
+    es: 'Muestra el escáner de ofertas en 1 clic en la parte superior del resumen de ofertas.',
+  },
+  'App Voorkeuren & Bier Counter': {
+    en: 'App Preferences & Beer Counter',
+    de: 'App-Einstellungen & Bierzähler',
+    fr: 'Préférences & Compteur de Bières',
+    es: 'Preferencias de la App y Contador de Cervezas',
+  },
+  'Standaard startscherm en berekeningswaarden voor je avondteller': {
+    en: 'Default start screen and calculation values for your evening counter',
+    de: 'Standard-Startbildschirm und Berechnungswerte für deinen Abendzähler',
+    fr: 'Écran de démarrage par défaut et valeurs de calcul pour votre compteur de soirée',
+    es: 'Pantalla de inicio predeterminada y valores de cálculo para tu contador nocturno',
+  },
+  'Standaard starttabblad bij openen van Cervisium': {
+    en: 'Default start tab when opening Cervisium',
+    de: 'Standard-Starttab beim Öffnen von Cervisium',
+    fr: 'Onglet de démarrage par défaut à l’ouverture de Cervisium',
+    es: 'Pestaña de inicio predeterminada al abrir Cervisium',
+  },
+  'Dashboard (Overzicht)': {
+    en: 'Dashboard (Overview)',
+    de: 'Dashboard (Übersicht)',
+    fr: 'Tableau de bord (Aperçu)',
+    es: 'Panel (Resumen)',
+  },
+  "Extra's (Acties & Bier Counter)": {
+    en: 'Extras (Deals & Beer Counter)',
+    de: 'Extras (Aktionen & Bierzähler)',
+    fr: 'Extras (Offres & Compteur)',
+    es: 'Extras (Ofertas y Contador)',
+  },
+  'Extra’s (Acties & Bier Counter)': {
+    en: 'Extras (Deals & Beer Counter)',
+    de: 'Extras (Aktionen & Bierzähler)',
+    fr: 'Extras (Offres & Compteur)',
+    es: 'Extras (Ofertas y Contador)',
+  },
+  'Standaard prijs per bier (€)': {
+    en: 'Default price per beer (€)',
+    de: 'Standardpreis pro Bier (€)',
+    fr: 'Prix par défaut par bière (€)',
+    es: 'Precio predeterminado por cerveza (€)',
+  },
+  'Standaard glasformaat (Bier Counter)': {
+    en: 'Default glass size (Beer Counter)',
+    de: 'Standard-Glasgröße (Bierzähler)',
+    fr: 'Taille de verre par défaut (Compteur)',
+    es: 'Tamaño de vaso predeterminado (Contador)',
+  },
+  'Mijn Google Profiel': {
+    en: 'My Profile',
+    de: 'Mein Profil',
+    fr: 'Mon Profil',
+    es: 'Mi Perfil',
+  },
+  'Beheer de weergavenaam van je gekoppelde Google-account': {
+    en: 'Manage the display name of your account',
+    de: 'Verwalte den Anzeigenamen deines Kontos',
+    fr: 'Gérez le nom d’affichage de votre compte',
+    es: 'Administra el nombre visible de tu cuenta',
+  },
+  'Jouw Weergavenaam (standaard je Google-accountnaam)': {
+    en: 'Your Display Name',
+    de: 'Dein Anzeigename',
+    fr: 'Votre Nom d’Affichage',
+    es: 'Tu Nombre Visible',
+  },
+  'Jouw naam...': {
+    en: 'Your name...',
+    de: 'Dein Name...',
+    fr: 'Votre nom...',
+    es: 'Tu nombre...',
+  },
+  'Data Back-up & Beheer': {
+    en: 'Data Backup & Management',
+    de: 'Datensicherung & Verwaltung',
+    fr: 'Sauvegarde & Gestion des Données',
+    es: 'Copia de Seguridad y Gestión de Datos',
+  },
+  'Download Back-up': {
+    en: 'Download Backup',
+    de: 'Backup herunterladen',
+    fr: 'Télécharger la sauvegarde',
+    es: 'Descargar copia de seguridad',
+  },
+  'Importeer JSON': {
+    en: 'Import JSON',
+    de: 'JSON importieren',
+    fr: 'Importer JSON',
+    es: 'Importar JSON',
+  },
+  'Laad voorbeeld bieren': {
+    en: 'Load sample beers',
+    de: 'Beispielbiere laden',
+    fr: 'Charger des bières d’exemple',
+    es: 'Cargar cervezas de ejemplo',
+  },
+  'Wis mijn data': {
+    en: 'Clear my data',
+    de: 'Meine Daten löschen',
+    fr: 'Effacer mes données',
+    es: 'Borrar mis datos',
+  },
+  'Bevestig wissen': {
+    en: 'Confirm delete',
+    de: 'Löschen bestätigen',
+    fr: 'Confirmer la suppression',
+    es: 'Confirmar borrado',
+  },
+  'Annuleer': {
+    en: 'Cancel',
+    de: 'Abbrechen',
+    fr: 'Annuler',
+    es: 'Cancelar',
+  },
+  'Gescheiden': {
+    en: 'Separated',
+    de: 'Getrennt',
+    fr: 'Séparés',
+    es: 'Separados',
+  },
+  "Nog geen foto's toegevoegd": {
+    en: 'No photos added yet',
+    de: 'Noch keine Fotos hinzugefügt',
+    fr: 'Aucune photo ajoutée pour le moment',
+    es: 'Aún no se han añadido fotos',
+  },
+  'Zodra je een foto toevoegt bij een biertje of een bierglas in je collectie, verschijnen ze hier automatisch.': {
+    en: 'As soon as you add a photo to a beer or a beer glass in your collection, they will automatically appear here.',
+    de: 'Sobald du ein Foto zu einem Bier oder Bierglas in deiner Sammlung hinzufügst, erscheint es automatisch hier.',
+    fr: 'Dès que vous ajoutez une photo à une bière ou un verre de votre collection, elle apparaît automatiquement ici.',
+    es: 'Tan pronto como añadas una foto a una cerveza o vaso de tu colección, aparecerá aquí automáticamente.',
+  },
 };
 
 /**
@@ -754,7 +1066,72 @@ const DYNAMIC_PATTERNS: Array<{
       return `${count} ofertas activas`;
     },
   },
+  {
+    regex: /^Mijn Foto['’]s \((\d+)\)$/i,
+    replace: (m, locale) => {
+      const count = m[1];
+      if (locale === 'en') return `My Photos (${count})`;
+      if (locale === 'de') return `Meine Fotos (${count})`;
+      if (locale === 'fr') return `Mes Photos (${count})`;
+      return `Mis Fotos (${count})`;
+    },
+  },
+  {
+    regex: /^Alles in 1 keer \((\d+)\)$/i,
+    replace: (m, locale) => {
+      const count = m[1];
+      if (locale === 'en') return `All at once (${count})`;
+      if (locale === 'de') return `Alle auf einmal (${count})`;
+      if (locale === 'fr') return `Tout en une fois (${count})`;
+      return `Todo a la vez (${count})`;
+    },
+  },
+  {
+    regex: /^Biertjes \((\d+)\)$/i,
+    replace: (m, locale) => {
+      const count = m[1];
+      if (locale === 'en') return `Beers (${count})`;
+      if (locale === 'de') return `Biere (${count})`;
+      if (locale === 'fr') return `Bières (${count})`;
+      return `Cervezas (${count})`;
+    },
+  },
+  {
+    regex: /^Bierglazen \((\d+)\)$/i,
+    replace: (m, locale) => {
+      const count = m[1];
+      if (locale === 'en') return `Beer Glasses (${count})`;
+      if (locale === 'de') return `Biergläser (${count})`;
+      if (locale === 'fr') return `Verres à Bière (${count})`;
+      return `Vasos de Cerveza (${count})`;
+    },
+  },
 ];
+
+export type LanguagePreference = 'auto' | SupportedLocale;
+
+const LANGUAGE_PREF_STORAGE_KEY = 'cervisium_language_preference';
+
+let currentLanguagePreference: LanguagePreference = (() => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(LANGUAGE_PREF_STORAGE_KEY);
+      if (
+        saved === 'auto' ||
+        saved === 'nl' ||
+        saved === 'en' ||
+        saved === 'de' ||
+        saved === 'fr' ||
+        saved === 'es'
+      ) {
+        return saved;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return 'auto';
+})();
 
 /**
  * Detects the active browser or phone language from `navigator.languages` / `navigator.language`.
@@ -786,9 +1163,62 @@ export function detectBrowserLocale(): SupportedLocale {
 }
 
 /**
- * Returns the browser's full locale tag for `toLocaleDateString` (e.g. 'nl-NL', 'en-US', 'de-DE')
+ * Returns the user's configured language preference ('auto' | 'nl' | 'en' | 'de' | 'fr' | 'es').
+ */
+export function getLanguagePreference(): LanguagePreference {
+  return currentLanguagePreference;
+}
+
+/**
+ * Returns the effective active locale (either the manual preference or the detected browser/phone locale).
+ */
+export function getActiveLocale(): SupportedLocale {
+  if (currentLanguagePreference !== 'auto') {
+    return currentLanguagePreference;
+  }
+  return detectBrowserLocale();
+}
+
+/**
+ * Updates the active language preference ('auto' or a specific locale) and immediately updates the entire DOM.
+ */
+export function setLanguagePreference(pref: LanguagePreference): void {
+  const validPref: LanguagePreference =
+    pref === 'nl' || pref === 'en' || pref === 'de' || pref === 'fr' || pref === 'es'
+      ? pref
+      : 'auto';
+  currentLanguagePreference = validPref;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LANGUAGE_PREF_STORAGE_KEY, validPref);
+    }
+  } catch {
+    // ignore
+  }
+  if (typeof document !== 'undefined') {
+    const resolved = getActiveLocale();
+    document.documentElement.lang = resolved;
+    if (document.body) {
+      applyDomLocalization(document.body, resolved);
+    }
+  }
+}
+
+/**
+ * Returns the full locale tag for `toLocaleDateString` (e.g. 'nl-NL', 'en-GB', 'de-DE', 'fr-FR', 'es-ES')
  */
 export function getBrowserDateLocale(): string {
+  const active = getActiveLocale();
+  if (currentLanguagePreference !== 'auto') {
+    const map: Record<SupportedLocale, string> = {
+      nl: 'nl-NL',
+      en: 'en-GB',
+      de: 'de-DE',
+      fr: 'fr-FR',
+      es: 'es-ES',
+    };
+    return map[active] || 'nl-NL';
+  }
   if (typeof navigator !== 'undefined' && navigator.language) {
     return navigator.language;
   }
@@ -796,10 +1226,10 @@ export function getBrowserDateLocale(): string {
 }
 
 /**
- * Translates a single UI string according to the detected browser/phone locale.
+ * Translates a single UI string according to the active locale.
  * Strictly preserves brand names (e.g., Cervisium).
  */
-export function translateText(input: string, locale: SupportedLocale = detectBrowserLocale()): string {
+export function translateText(input: string, locale: SupportedLocale = getActiveLocale()): string {
   if (locale === 'nl' || !input) return input;
 
   const trimmed = input.trim();
@@ -850,8 +1280,13 @@ function isInsideNoTranslate(node: Node | null): boolean {
   return false;
 }
 
-const originalTextNodes = new WeakMap<Text, string>();
-const originalAttributes = new WeakMap<Element, Map<string, string>>();
+interface TrackedStringState {
+  source: string;
+  lastRendered: string;
+}
+
+const trackedTextNodes = new WeakMap<Text, TrackedStringState>();
+const trackedAttributes = new WeakMap<Element, Map<string, TrackedStringState>>();
 
 function applyDomLocalization(root: Node, locale: SupportedLocale) {
   if (typeof document === 'undefined') return;
@@ -869,11 +1304,16 @@ function applyDomLocalization(root: Node, locale: SupportedLocale) {
         parentTag !== 'NOSCRIPT' &&
         !isInsideNoTranslate(textNode)
       ) {
-        if (!originalTextNodes.has(textNode)) {
-          originalTextNodes.set(textNode, textNode.nodeValue || '');
-        }
-        const sourceText = originalTextNodes.get(textNode) ?? textNode.nodeValue ?? '';
+        const currentVal = textNode.nodeValue || '';
+        const tracked = trackedTextNodes.get(textNode);
+        // Als dit een nieuwe node is, of als React de tekst dynamisch heeft bijgewerkt:
+        const sourceText =
+          !tracked || currentVal !== tracked.lastRendered ? currentVal : tracked.source;
         const translated = locale === 'nl' ? sourceText : translateText(sourceText, locale);
+        trackedTextNodes.set(textNode, {
+          source: sourceText,
+          lastRendered: translated,
+        });
         if (textNode.nodeValue !== translated) {
           textNode.nodeValue = translated;
         }
@@ -885,16 +1325,18 @@ function applyDomLocalization(root: Node, locale: SupportedLocale) {
         for (const attr of attrs) {
           const val = el.getAttribute(attr);
           if (val) {
-            let attrMap = originalAttributes.get(el);
+            let attrMap = trackedAttributes.get(el);
             if (!attrMap) {
-              attrMap = new Map<string, string>();
-              originalAttributes.set(el, attrMap);
+              attrMap = new Map<string, TrackedStringState>();
+              trackedAttributes.set(el, attrMap);
             }
-            if (!attrMap.has(attr)) {
-              attrMap.set(attr, val);
-            }
-            const sourceAttr = attrMap.get(attr) ?? val;
+            const tracked = attrMap.get(attr);
+            const sourceAttr = !tracked || val !== tracked.lastRendered ? val : tracked.source;
             const translatedAttr = locale === 'nl' ? sourceAttr : translateText(sourceAttr, locale);
+            attrMap.set(attr, {
+              source: sourceAttr,
+              lastRendered: translatedAttr,
+            });
             if (val !== translatedAttr) {
               el.setAttribute(attr, translatedAttr);
             }
@@ -909,7 +1351,7 @@ function applyDomLocalization(root: Node, locale: SupportedLocale) {
 let observerInitialized = false;
 
 /**
- * Starts automatic browser/phone language synchronization on the document.
+ * Starts automatic browser/phone and user-selected language synchronization on the document.
  */
 export function initBrowserLanguageSync(): void {
   if (typeof window === 'undefined' || typeof document === 'undefined' || observerInitialized) {
@@ -918,7 +1360,7 @@ export function initBrowserLanguageSync(): void {
   observerInitialized = true;
 
   const syncLanguage = () => {
-    const locale = detectBrowserLocale();
+    const locale = getActiveLocale();
     document.documentElement.lang = locale;
     if (document.body) {
       applyDomLocalization(document.body, locale);
@@ -928,13 +1370,15 @@ export function initBrowserLanguageSync(): void {
   syncLanguage();
 
   const observer = new MutationObserver((mutations) => {
-    const locale = detectBrowserLocale();
+    const locale = getActiveLocale();
     if (locale === 'nl') return;
     for (const m of mutations) {
       if (m.type === 'childList') {
         m.addedNodes.forEach((node) => {
           applyDomLocalization(node, locale);
         });
+      } else if (m.type === 'characterData' && m.target) {
+        applyDomLocalization(m.target, locale);
       }
     }
   });
@@ -942,6 +1386,7 @@ export function initBrowserLanguageSync(): void {
   if (document.body) {
     observer.observe(document.body, {
       childList: true,
+      characterData: true,
       subtree: true,
     });
   }
@@ -950,3 +1395,4 @@ export function initBrowserLanguageSync(): void {
     syncLanguage();
   });
 }
+

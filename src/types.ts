@@ -110,8 +110,11 @@ export interface PubGlassDeal {
   submittedBy?: string;
 }
 
+export type AppLanguagePreference = 'auto' | 'nl' | 'en' | 'de' | 'fr' | 'es';
+
 export interface UserSettings {
   lightMode: boolean; // Activeert de lichte modus (wit thema)
+  language?: AppLanguagePreference; // Taalvoorkeur ('auto' = browser/telefoon taal, of handmatig gekozen taal)
   showExtrasDealBadge: boolean; // Standaard false: verbergt het groene teller-icoontje op de Extra's knop
   showNavCollectionCounts: boolean; // Toont aantal bieren/glazen in de navigatiebalk
   showExtrasTab: boolean; // Toont de Extra's knop in de navigatiebalk
@@ -120,6 +123,7 @@ export interface UserSettings {
   defaultBeerPrice: number;
   defaultGlassSizeCl: number;
 }
+
 
 export type SortField = 'rating' | 'name' | 'abv' | 'date';
 export type SortDirection = 'asc' | 'desc';

@@ -987,6 +987,7 @@ export function deleteGlass(userId: string, glassId: string): void {
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   lightMode: false,
+  language: 'auto',
   showExtrasDealBadge: false, // Standaard uitgeschakeld op verzoek van gebruiker
   showNavCollectionCounts: true,
   showExtrasTab: true,

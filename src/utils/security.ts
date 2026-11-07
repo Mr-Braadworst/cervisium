@@ -304,6 +304,8 @@ export function sanitizePubDeal(raw: unknown): PubGlassDeal {
   };
 }
 
+const VALID_LANGUAGE_PREFS = ['auto', 'nl', 'en', 'de', 'fr', 'es'] as const;
+
 export function sanitizeUserSettings(raw: unknown, defaults: UserSettings): UserSettings {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ...defaults };
@@ -312,9 +314,15 @@ export function sanitizeUserSettings(raw: unknown, defaults: UserSettings): User
   const startTab = VALID_START_TABS.includes(obj.defaultStartTab as UserSettings['defaultStartTab'])
     ? (obj.defaultStartTab as UserSettings['defaultStartTab'])
     : defaults.defaultStartTab;
+  const language = VALID_LANGUAGE_PREFS.includes(
+    obj.language as NonNullable<UserSettings['language']>
+  )
+    ? (obj.language as NonNullable<UserSettings['language']>)
+    : defaults.language || 'auto';
 
   return {
     lightMode: typeof obj.lightMode === 'boolean' ? obj.lightMode : defaults.lightMode,
+    language,
     showExtrasDealBadge:
       typeof obj.showExtrasDealBadge === 'boolean'
         ? obj.showExtrasDealBadge
