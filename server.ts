@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import { execSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -37,18 +38,157 @@ async function startServer() {
     next();
   });
 
-  // JSON body-limiet van 50MB voor admin back-ups inclusief gecomprimeerde foto's
-  app.use(express.json({ limit: '50mb' }));
-  app.use('/api', rateLimitMiddleware(180));
+  // JSON body-limiet van 150MB voor grote collecties en admin back-ups inclusief gecomprimeerde foto's
+  app.use(express.json({ limit: '150mb' }));
+  app.use('/api', rateLimitMiddleware(240));
+
+  async function getServerSystemMetrics() {
+    // 1. RAM meting op Linux via /proc/meminfo (MemAvailable houdt rekening met Linux disk cache/buffers, zoals free -h / htop)
+    let ramTotalBytes = os.totalmem();
+    let ramFreeBytes = os.freemem();
+    let ramBuffersCachedBytes = 0;
+
+    try {
+      if (fs.existsSync('/proc/meminfo')) {
+        const meminfo = fs.readFileSync('/proc/meminfo', 'utf8');
+        const parseKb = (key: string): number | null => {
+          const match = meminfo.match(new RegExp(`^${key}:\\s+(\\d+)\\s+kB`, 'm'));
+          return match ? Number(match[1]) * 1024 : null;
+        };
+        const memTotal = parseKb('MemTotal');
+        const memAvailable = parseKb('MemAvailable');
+        const memFree = parseKb('MemFree');
+        const buffers = parseKb('Buffers') || 0;
+        const cached = parseKb('Cached') || 0;
+        const sReclaimable = parseKb('SReclaimable') || 0;
+
+        if (memTotal && memTotal > 0) {
+          ramTotalBytes = memTotal;
+        }
+        ramBuffersCachedBytes = buffers + cached + sReclaimable;
+        if (memAvailable !== null && memAvailable >= 0) {
+          ramFreeBytes = memAvailable;
+        } else if (memFree !== null) {
+          ramFreeBytes = Math.min(ramTotalBytes, memFree + ramBuffersCachedBytes);
+        }
+      }
+    } catch {
+      // Gebruik os.totalmem() / os.freemem() als fallback
+    }
+
+    const ramUsedBytes = Math.max(0, ramTotalBytes - ramFreeBytes);
+
+    // Bereken RAM van alle processen in de container (Node.js + lokale database-processen)
+    let appRamRssBytes = process.memoryUsage().rss;
+    try {
+      if (fs.existsSync('/proc')) {
+        const entries = fs.readdirSync('/proc');
+        let totalProcRss = 0;
+        for (const entry of entries) {
+          if (/^\d+$/.test(entry)) {
+            try {
+              const statusContent = fs.readFileSync(`/proc/${entry}/status`, 'utf8');
+              const rssMatch = statusContent.match(/^VmRSS:\s+(\d+)\s+kB/m);
+              if (rssMatch) {
+                totalProcRss += Number(rssMatch[1]) * 1024;
+              }
+            } catch {
+              // Proces kan inmiddels beëindigd zijn
+            }
+          }
+        }
+        if (totalProcRss >= appRamRssBytes) {
+          appRamRssBytes = totalProcRss;
+        }
+      }
+    } catch {
+      // Fallback naar process.memoryUsage().rss
+    }
+
+    // 2. Schijfopslag (Disk) meting via fs.statfsSync over alle relevante mount-punten + df fallback
+    let diskTotalBytes = 0;
+    let diskFreeBytes = 0;
+    let diskUsedBytes = 0;
+
+    const candidatePaths = ['/var/lib/postgresql/data', '/data', '/app', '/'];
+    for (const candidatePath of candidatePaths) {
+      try {
+        if (!fs.existsSync(candidatePath)) continue;
+        const stat = fs.statfsSync(candidatePath);
+        const blockSize = Number((stat as any).frsize || stat.bsize || 4096);
+        const totalBlocks = Number(stat.blocks);
+        const freeBlocks = Number(stat.bfree);
+        const availBlocks = Number(stat.bavail);
+
+        const total = totalBlocks * blockSize;
+        const free = availBlocks * blockSize;
+        const used = Math.max(0, (totalBlocks - freeBlocks) * blockSize);
+
+        if (total > diskTotalBytes) {
+          diskTotalBytes = total;
+          diskFreeBytes = free;
+          diskUsedBytes = used;
+        }
+      } catch {
+        // Probeer volgend pad
+      }
+    }
+
+    if (diskTotalBytes <= 0) {
+      try {
+        const dfOut = execSync('df -kP / 2>/dev/null', { encoding: 'utf8', timeout: 1500 });
+        const lines = dfOut.trim().split('\n');
+        if (lines.length >= 2) {
+          const cols = lines[lines.length - 1].trim().split(/\s+/);
+          if (cols.length >= 4) {
+            const totalKb = Number(cols[1]);
+            const usedKb = Number(cols[2]);
+            const availKb = Number(cols[3]);
+            if (Number.isFinite(totalKb) && totalKb > 0) {
+              diskTotalBytes = totalKb * 1024;
+              diskUsedBytes = Math.max(0, usedKb * 1024);
+              diskFreeBytes = Math.max(0, availKb * 1024);
+            }
+          }
+        }
+      } catch {
+        // Ignore df fallback errors
+      }
+    }
+
+    // 3. Werkelijke database-opslag op schijf
+    const dbSizeBytes = await centralDb.getDatabaseSizeBytes();
+
+    return {
+      diskTotalBytes,
+      diskUsedBytes,
+      diskFreeBytes,
+      ramTotalBytes,
+      ramUsedBytes,
+      ramFreeBytes,
+      ramBuffersCachedBytes,
+      appRamRssBytes,
+      dbSizeBytes,
+      cpuCores: os.cpus()?.length || 1,
+      uptimeSeconds: Math.floor(os.uptime()),
+    };
+  }
 
   // ==========================================================================
-  // 1. HEALTH & DATABASE STATUS ENDPOINT (Geen gevoelige sleutels)
+  // 1. HEALTH & SERVER SYSTEEM-METINGEN ENDPOINTS (Geen gevoelige sleutels)
   // ==========================================================================
-  app.get('/api/health', (_req, res) => {
+  app.get('/api/health', async (_req, res) => {
     res.json({
       status: 'ok',
       postgresConnected: centralDb.isPostgresConfigured(),
+      systemMetrics: await getServerSystemMetrics(),
       timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get('/api/system/metrics', async (_req, res) => {
+    res.json({
+      systemMetrics: await getServerSystemMetrics(),
     });
   });
 
@@ -399,107 +539,6 @@ async function startServer() {
   // ==========================================================================
   // 4. SERVER-SIDE VERGRENDELDE ADMIN ENDPOINTS (requireAdmin middleware)
   // ==========================================================================
-  async function getServerSystemMetrics() {
-    // 1. RAM meting op Linux via /proc/meminfo (MemAvailable houdt rekening met Linux disk cache/buffers, zoals free -h / htop)
-    let ramTotalBytes = os.totalmem();
-    let ramFreeBytes = os.freemem();
-    let ramBuffersCachedBytes = 0;
-
-    try {
-      if (fs.existsSync('/proc/meminfo')) {
-        const meminfo = fs.readFileSync('/proc/meminfo', 'utf8');
-        const parseKb = (key: string): number | null => {
-          const match = meminfo.match(new RegExp(`^${key}:\\s+(\\d+)\\s+kB`, 'm'));
-          return match ? Number(match[1]) * 1024 : null;
-        };
-        const memTotal = parseKb('MemTotal');
-        const memAvailable = parseKb('MemAvailable');
-        const memFree = parseKb('MemFree');
-        const buffers = parseKb('Buffers') || 0;
-        const cached = parseKb('Cached') || 0;
-        const sReclaimable = parseKb('SReclaimable') || 0;
-
-        if (memTotal && memTotal > 0) {
-          ramTotalBytes = memTotal;
-        }
-        ramBuffersCachedBytes = buffers + cached + sReclaimable;
-        if (memAvailable !== null && memAvailable >= 0) {
-          ramFreeBytes = memAvailable;
-        } else if (memFree !== null) {
-          ramFreeBytes = Math.min(ramTotalBytes, memFree + ramBuffersCachedBytes);
-        }
-      }
-    } catch {
-      // Gebruik os.totalmem() / os.freemem() als fallback
-    }
-
-    const ramUsedBytes = Math.max(0, ramTotalBytes - ramFreeBytes);
-
-    // Bereken RAM van alle processen in de container (Node.js + eventuele lokale database-processen)
-    let appRamRssBytes = process.memoryUsage().rss;
-    try {
-      if (fs.existsSync('/proc')) {
-        const entries = fs.readdirSync('/proc');
-        let totalProcRss = 0;
-        for (const entry of entries) {
-          if (/^\d+$/.test(entry)) {
-            try {
-              const statusContent = fs.readFileSync(`/proc/${entry}/status`, 'utf8');
-              const rssMatch = statusContent.match(/^VmRSS:\s+(\d+)\s+kB/m);
-              if (rssMatch) {
-                totalProcRss += Number(rssMatch[1]) * 1024;
-              }
-            } catch {
-              // Proces kan inmiddels beëindigd zijn
-            }
-          }
-        }
-        if (totalProcRss >= appRamRssBytes) {
-          appRamRssBytes = totalProcRss;
-        }
-      }
-    } catch {
-      // Fallback naar process.memoryUsage().rss
-    }
-
-    // 2. Schijfopslag (Disk) meting via fs.statfsSync op /data (of /)
-    let diskTotalBytes = 0;
-    let diskFreeBytes = 0;
-    let diskUsedBytes = 0;
-    try {
-      const targetPath = fs.existsSync('/data') ? '/data' : '/';
-      const stat = fs.statfsSync(targetPath);
-      const blockSize = Number((stat as any).frsize || stat.bsize || 4096);
-      const totalBlocks = Number(stat.blocks);
-      const freeBlocks = Number(stat.bfree);
-      const availBlocks = Number(stat.bavail);
-
-      diskTotalBytes = totalBlocks * blockSize;
-      diskFreeBytes = availBlocks * blockSize;
-      // Werkelijk gebruikte schijfruimte zoals gerapporteerd door Linux `df`
-      diskUsedBytes = Math.max(0, (totalBlocks - freeBlocks) * blockSize);
-    } catch {
-      // Fallback indien statfsSync niet beschikbaar is
-    }
-
-    // 3. Werkelijke database-opslag op schijf
-    const dbSizeBytes = await centralDb.getDatabaseSizeBytes();
-
-    return {
-      diskTotalBytes,
-      diskUsedBytes,
-      diskFreeBytes,
-      ramTotalBytes,
-      ramUsedBytes,
-      ramFreeBytes,
-      ramBuffersCachedBytes,
-      appRamRssBytes,
-      dbSizeBytes,
-      cpuCores: os.cpus()?.length || 1,
-      uptimeSeconds: Math.floor(os.uptime()),
-    };
-  }
-
   app.get('/api/admin/verify', requireAdmin, async (req, res) => {
     res.json({
       authorized: true,

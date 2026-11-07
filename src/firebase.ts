@@ -146,9 +146,13 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-export async function testConnection() {
+export function isClientFirestoreEnabled(): boolean {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
-  if (env.VITE_USE_FIRESTORE === 'false') {
+  return env.VITE_USE_FIRESTORE === 'true';
+}
+
+export async function testConnection() {
+  if (!isClientFirestoreEnabled()) {
     return;
   }
   try {
@@ -159,8 +163,6 @@ export async function testConnection() {
     }
   }
 }
-
-testConnection();
 
 export {
   signInWithPopup,

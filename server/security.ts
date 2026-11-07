@@ -199,9 +199,9 @@ export function verifySignedSessionToken(token: string): AuthenticatedServerUser
 // Cache voor Google's publieke X.509 certificaten (zowel Google OAuth2 als Firebase Auth)
 let cachedGoogleCerts: { certs: Record<string, string>; expiresAt: number } | null = null;
 
-async function getGooglePublicCerts(): Promise<Record<string, string>> {
+async function getGooglePublicCerts(forceRefresh = false): Promise<Record<string, string>> {
   const now = Date.now();
-  if (cachedGoogleCerts && cachedGoogleCerts.expiresAt > now) {
+  if (!forceRefresh && cachedGoogleCerts && cachedGoogleCerts.expiresAt > now) {
     return cachedGoogleCerts.certs;
   }
 
@@ -219,6 +219,7 @@ async function getGooglePublicCerts(): Promise<Record<string, string>> {
   }
 
   if (Object.keys(combined).length === 0) {
+    if (cachedGoogleCerts) return cachedGoogleCerts.certs;
     throw new Error('Kon Google public keys niet ophalen voor JWT-verificatie.');
   }
 
@@ -260,7 +261,8 @@ export async function verifyFirebaseIdToken(
 
     if (header.alg !== 'RS256' || !header.kid) return null;
     const nowSec = Math.floor(Date.now() / 1000);
-    if (!payload.exp || payload.exp < nowSec - 30) return null;
+    // Sta maximaal 5 minuten klokverschil toe in containers
+    if (!payload.exp || payload.exp < nowSec - 300) return null;
 
     // Controleer issuer (Google OAuth 2.0 of Google SecureToken)
     const iss = payload.iss || '';
@@ -283,8 +285,12 @@ export async function verifyFirebaseIdToken(
     const rawUid = payload.sub || payload.user_id;
     const uid = rawUid && isValidServerId(rawUid) ? rawUid : sanitizeServerId(rawUid, 'goog');
 
-    const certs = await getGooglePublicCerts();
-    const certPem = certs[header.kid];
+    let certs = await getGooglePublicCerts(false);
+    let certPem = certs[header.kid];
+    if (!certPem) {
+      certs = await getGooglePublicCerts(true);
+      certPem = certs[header.kid];
+    }
     if (!certPem) return null;
 
     const verifier = crypto.createVerify('RSA-SHA256');

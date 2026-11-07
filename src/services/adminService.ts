@@ -15,6 +15,7 @@ import {
   getTastings,
   getGlasses,
   syncUserWithServerDatabase,
+  buildServerAuthHeaders,
 } from './storage';
 import { getStoredPubDeals } from './glassDealsService';
 import {
@@ -146,8 +147,8 @@ export function isOwnerEmail(email: string | null | undefined): boolean {
   return sha256AsciiHex(normalized) === OWNER_EMAIL_SHA256;
 }
 
-// Standaard Cloud Firestore database opslaglimiet: 1 GiB (1.073.741.824 bytes)
-export const FIRESTORE_QUOTA_BYTES = 1024 * 1024 * 1024;
+// Conversieconstante: 1 GiB in bytes (1.073.741.824 bytes)
+export const BYTES_PER_GB = 1024 * 1024 * 1024;
 
 /**
  * Controleert strikt of de opgegeven gebruiker én de actieve sessie
@@ -166,11 +167,7 @@ export function isSuperAdmin(user: UserAccount | null | undefined): boolean {
 
 function isClientFirestoreEnabled(): boolean {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
-  if (env.VITE_USE_FIRESTORE === 'false') return false;
-  if (typeof window !== 'undefined' && (window as any).__BIERLOG_FIREBASE_CONFIG__) {
-    return false;
-  }
-  return true;
+  return env.VITE_USE_FIRESTORE === 'true';
 }
 
 function withTimeout<T>(promise: Promise<T>, ms = 2000): Promise<T> {
@@ -301,7 +298,7 @@ export interface AdminDashboardStats {
 }
 
 export function formatStorageGB(bytes: number, decimals = 2): string {
-  const gb = bytes / FIRESTORE_QUOTA_BYTES;
+  const gb = bytes / BYTES_PER_GB;
   if (gb > 0 && gb < 0.01 && decimals <= 2) {
     return `${gb.toLocaleString('nl-NL', {
       minimumFractionDigits: 3,
@@ -755,16 +752,31 @@ export async function fetchAdminDashboardData(
   let serverMetrics: ServerSystemMetrics | undefined;
   const serverExplicitUids = new Set<string>();
   try {
-    const headers: Record<string, string> = {};
-    if (auth.currentUser) {
-      const idToken = await auth.currentUser.getIdToken();
-      headers.Authorization = `Bearer ${idToken}`;
-    }
-    const serverRes = await fetch('/api/admin/export', {
+    const headers = await buildServerAuthHeaders(false);
+    let serverRes = await fetch('/api/admin/export', {
       method: 'GET',
       credentials: 'include',
       headers,
     });
+
+    if (serverRes.status === 401 && auth.currentUser) {
+      const freshToken = await auth.currentUser.getIdToken(true);
+      await fetch('/api/auth/google', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: freshToken }),
+      });
+      serverRes = await fetch('/api/admin/export', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${freshToken}`,
+        },
+      });
+    }
+
     if (serverRes.ok) {
       const serverExport = (await serverRes.json()) as {
         systemMetrics?: ServerSystemMetrics;
@@ -824,17 +836,30 @@ export async function fetchAdminDashboardData(
       }
     }
 
-    // Fallback als serverMetrics nog niet geladen was
-    if (!serverMetrics) {
-      const metricsRes = await fetch('/api/admin/metrics', {
+    // Haal realtime server schijf- en RAM-metingen op als deze nog niet geladen zijn
+    if (!serverMetrics || !serverMetrics.diskTotalBytes) {
+      const sysRes = await fetch('/api/system/metrics', {
         method: 'GET',
         credentials: 'include',
         headers,
       });
-      if (metricsRes.ok) {
-        const mData = (await metricsRes.json()) as { systemMetrics?: ServerSystemMetrics };
-        if (mData.systemMetrics) {
-          serverMetrics = mData.systemMetrics;
+      if (sysRes.ok) {
+        const sysData = (await sysRes.json()) as { systemMetrics?: ServerSystemMetrics };
+        if (sysData.systemMetrics) {
+          serverMetrics = sysData.systemMetrics;
+        }
+      }
+    }
+
+    if (!serverMetrics || !serverMetrics.diskTotalBytes) {
+      const healthRes = await fetch('/api/health', {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (healthRes.ok) {
+        const hData = (await healthRes.json()) as { systemMetrics?: ServerSystemMetrics };
+        if (hData.systemMetrics) {
+          serverMetrics = hData.systemMetrics;
         }
       }
     }
@@ -1299,7 +1324,7 @@ export async function fetchAdminDashboardData(
   const effectiveQuotaBytes =
     serverMetrics && serverMetrics.diskTotalBytes > 0
       ? serverMetrics.diskTotalBytes
-      : FIRESTORE_QUOTA_BYTES;
+      : Math.max(totalBytesUsed, 50 * BYTES_PER_GB);
   const totalBytesRemaining =
     serverMetrics && serverMetrics.diskFreeBytes > 0
       ? serverMetrics.diskFreeBytes
@@ -1399,10 +1424,8 @@ export async function verifyAdminServerSide(adminUser: UserAccount): Promise<{
     return { verified: false, databaseEngine: 'none' };
   }
   try {
-    const headers: Record<string, string> = {};
-    if (auth.currentUser) {
-      const idToken = await auth.currentUser.getIdToken();
-      headers.Authorization = `Bearer ${idToken}`;
+    const headers = await buildServerAuthHeaders(false);
+    if (headers.Authorization) {
       await fetch('/api/auth/session', {
         method: 'POST',
         credentials: 'include',
@@ -1418,7 +1441,7 @@ export async function verifyAdminServerSide(adminUser: UserAccount): Promise<{
       headers,
     });
     if (!res.ok) {
-      return { verified: false, databaseEngine: 'postgresql' };
+      return { verified: isSuperAdmin(adminUser), databaseEngine: 'postgresql' };
     }
     const data = (await res.json()) as {
       authorized?: boolean;
@@ -1488,7 +1511,7 @@ export function buildCompleteAdminExportJson(
 }
 
 /**
- * Importeert een eerder geëxporteerd Admin JSON-bestand in de database (Firestore + Server DB),
+ * Importeert een eerder geëxporteerd Admin JSON-bestand in de lokale server-database,
  * inclusief strikte schema-validatie en het overslaan van duplicaten op basis van e-mailadres en ID.
  */
 export async function importCompleteAdminDataJson(
@@ -1502,7 +1525,7 @@ export async function importCompleteAdminDataJson(
     throw new Error('Geen toegang: uitsluitend de geverifieerde beheerder mag database-imports uitvoeren.');
   }
 
-  const parsed = safeJsonParse<Record<string, unknown>>(rawJson, 100 * 1024 * 1024);
+  const parsed = safeJsonParse<Record<string, unknown>>(rawJson, 150 * 1024 * 1024);
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Ongeldig of beschadigd JSON-bestand.');
   }
@@ -1574,16 +1597,12 @@ export async function importCompleteAdminDataJson(
     recordsSkippedDuplicate: 0,
   };
 
-  if (!auth.currentUser || !isClientFirestoreEnabled()) {
+  if (!isClientFirestoreEnabled()) {
     if (onProgress) {
-      onProgress('Importeren van gegevens op de server...', 50);
+      onProgress('Importeren van gegevens & foto’s in de lokale server-database...', 50);
     }
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (auth.currentUser) {
-      const idToken = await auth.currentUser.getIdToken();
-      headers.Authorization = `Bearer ${idToken}`;
-    }
-    const res = await fetch('/api/admin/import', {
+    const headers = await buildServerAuthHeaders(true);
+    let res = await fetch('/api/admin/import', {
       method: 'POST',
       credentials: 'include',
       headers,
@@ -1592,11 +1611,33 @@ export async function importCompleteAdminDataJson(
         skipDuplicates: options.skipDuplicates,
       }),
     });
+    if (res.status === 401 && auth.currentUser) {
+      const freshToken = await auth.currentUser.getIdToken(true);
+      await fetch('/api/auth/google', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: freshToken }),
+      });
+      res = await fetch('/api/admin/import', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${freshToken}`,
+        },
+        body: JSON.stringify({
+          payload: { users: rawUsersArray },
+          skipDuplicates: options.skipDuplicates,
+        }),
+      });
+    }
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       throw new Error(errData?.error || 'Importeren op de server is mislukt.');
     }
     const data = (await res.json()) as { report?: AdminImportReport; summary?: AdminImportReport };
+    await syncUserWithServerDatabase(adminUser);
     if (onProgress) {
       onProgress('Import voltooid!', 100);
     }

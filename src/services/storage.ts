@@ -28,14 +28,70 @@ const COLOR_PALETTE = [
 
 export { COLOR_PALETTE };
 
-function deduplicateById<T extends { id: string }>(items: T[]): T[] {
+interface UserMemoryCache {
+  categories?: Category[];
+  beers?: Beer[];
+  tastings?: Tasting[];
+  glasses?: BeerGlass[];
+  sessions?: BeerSession[];
+}
+
+// In-memory store zodat grote collecties met hoge-resolutie foto's nooit verloren gaan als de browser 5MB localStorage limiet bereikt wordt
+const memoryCollections = new Map<string, UserMemoryCache>();
+
+function getUserMemory(userId: string): UserMemoryCache {
+  let entry = memoryCollections.get(userId);
+  if (!entry) {
+    entry = {};
+    memoryCollections.set(userId, entry);
+  }
+  return entry;
+}
+
+function deduplicateById<T extends { id: string; photoUrl?: string }>(items: T[]): T[] {
   const map = new Map<string, T>();
   for (const item of items) {
     if (item && isValidEntityId(item.id)) {
-      map.set(item.id, item);
+      const existing = map.get(item.id);
+      if (existing) {
+        // Behoud altijd de foto als één van beide versies een geüploade foto bevat
+        const merged = {
+          ...existing,
+          ...item,
+          photoUrl: item.photoUrl || existing.photoUrl,
+        };
+        map.set(item.id, merged);
+      } else {
+        map.set(item.id, item);
+      }
     }
   }
   return Array.from(map.values());
+}
+
+function safeSetLocalStorageWithPhotoFallback<T extends { id: string; photoUrl?: string }>(
+  key: string,
+  items: T[]
+): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(items));
+  } catch {
+    // Als 26+ bieren met foto's de 5 MB browser localStorage limiet overschrijden:
+    // bewaar metadata in localStorage en houd de volledige foto's in memoryCollections + de lokale server-database!
+    try {
+      const lightweight = items.map((item) => {
+        if (item.photoUrl && item.photoUrl.startsWith('data:')) {
+          const copy = { ...item };
+          delete copy.photoUrl;
+          return copy;
+        }
+        return item;
+      });
+      localStorage.setItem(key, JSON.stringify(lightweight));
+    } catch {
+      // Negeer als localStorage volledig vol zit; de lokale server-database slaat alles op
+    }
+  }
 }
 
 // --- User Management ---
@@ -129,7 +185,7 @@ export function consolidateLocalAccountsForUser(targetUser: UserAccount): void {
         if (oldGlasses.length > 0) mergedGlasses = deduplicateById([...oldGlasses, ...mergedGlasses]);
         if (oldSessions.length > 0) mergedSessions = deduplicateById([...oldSessions, ...mergedSessions]);
 
-        // Verwijder oude dubbele localStorage sleutels zodat ze nooit als spook-account in het Admin Panel verschijnen
+        memoryCollections.delete(oldUid);
         localStorage.removeItem(`bierlog_categories_${oldUid}`);
         localStorage.removeItem(`bierlog_beers_${oldUid}`);
         localStorage.removeItem(`bierlog_tastings_${oldUid}`);
@@ -138,11 +194,18 @@ export function consolidateLocalAccountsForUser(targetUser: UserAccount): void {
         localStorage.removeItem(`bierlog_settings_${oldUid}`);
       }
 
-      localStorage.setItem(`bierlog_categories_${targetId}`, JSON.stringify(mergedCats));
-      localStorage.setItem(`bierlog_beers_${targetId}`, JSON.stringify(mergedBeers));
-      localStorage.setItem(`bierlog_tastings_${targetId}`, JSON.stringify(mergedTastings));
-      localStorage.setItem(`bierlog_glasses_${targetId}`, JSON.stringify(mergedGlasses));
-      localStorage.setItem(`bierlog_sessions_${targetId}`, JSON.stringify(mergedSessions));
+      const mem = getUserMemory(targetId);
+      mem.categories = mergedCats;
+      mem.beers = mergedBeers;
+      mem.tastings = mergedTastings;
+      mem.glasses = mergedGlasses;
+      mem.sessions = mergedSessions;
+
+      safeSetLocalStorageWithPhotoFallback(`bierlog_categories_${targetId}`, mergedCats);
+      safeSetLocalStorageWithPhotoFallback(`bierlog_beers_${targetId}`, mergedBeers);
+      safeSetLocalStorageWithPhotoFallback(`bierlog_tastings_${targetId}`, mergedTastings);
+      safeSetLocalStorageWithPhotoFallback(`bierlog_glasses_${targetId}`, mergedGlasses);
+      safeSetLocalStorageWithPhotoFallback(`bierlog_sessions_${targetId}`, mergedSessions);
     }
 
     // Dedupliceer de gebruikerslijst op ID én op e-mailadres
@@ -160,7 +223,11 @@ export function consolidateLocalAccountsForUser(targetUser: UserAccount): void {
       cleanedUsers.push(u);
     }
 
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(cleanedUsers));
+    try {
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(cleanedUsers));
+    } catch {
+      // ignore quota
+    }
   } catch (e) {
     console.warn('Consolidatie lokale accounts melding:', e);
   }
@@ -254,27 +321,30 @@ export function createNewUser(name: string, email: string): UserAccount {
 // --- Categories ---
 
 export function getCategories(userId: string): Category[] {
+  const mem = getUserMemory(userId);
+  let fromStorage: Category[] = [];
   try {
     const raw = localStorage.getItem(`bierlog_categories_${userId}`);
-    if (!raw) return [];
-    const parsed = safeJsonParse<unknown[]>(raw);
-    if (!Array.isArray(parsed)) return [];
-    return deduplicateById(
-      parsed
-        .map((c: unknown) => sanitizeImportedCategory(c))
-        .filter((c: Category | null): c is Category => c !== null)
-    );
+    if (raw) {
+      const parsed = safeJsonParse<unknown[]>(raw);
+      if (Array.isArray(parsed)) {
+        fromStorage = parsed
+          .map((c: unknown) => sanitizeImportedCategory(c))
+          .filter((c: Category | null): c is Category => c !== null);
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+  const combined = deduplicateById([...fromStorage, ...(mem.categories || [])]);
+  mem.categories = combined;
+  return combined;
 }
 
 export function saveCategories(userId: string, categories: Category[]): void {
-  try {
-    localStorage.setItem(`bierlog_categories_${userId}`, JSON.stringify(categories));
-  } catch (e) {
-    console.warn('localStorage saveCategories quota notice:', e);
-  }
+  const deduped = deduplicateById(categories);
+  getUserMemory(userId).categories = deduped;
+  safeSetLocalStorageWithPhotoFallback(`bierlog_categories_${userId}`, deduped);
   queueServerDatabaseSync(userId);
 }
 
@@ -314,52 +384,58 @@ export function deleteCategory(userId: string, id: string): void {
 // --- Beers & Tastings ---
 
 export function getBeers(userId: string): Beer[] {
+  const mem = getUserMemory(userId);
+  let fromStorage: Beer[] = [];
   try {
     const raw = localStorage.getItem(`bierlog_beers_${userId}`);
-    if (!raw) return [];
-    const parsed = safeJsonParse<unknown[]>(raw);
-    if (!Array.isArray(parsed)) return [];
-    return deduplicateById(
-      parsed
-        .map((b: unknown) => sanitizeImportedBeer(b, userId))
-        .filter((b: Beer | null): b is Beer => b !== null)
-    );
+    if (raw) {
+      const parsed = safeJsonParse<unknown[]>(raw);
+      if (Array.isArray(parsed)) {
+        fromStorage = parsed
+          .map((b: unknown) => sanitizeImportedBeer(b, userId))
+          .filter((b: Beer | null): b is Beer => b !== null);
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+  const combined = deduplicateById([...fromStorage, ...(mem.beers || [])]);
+  mem.beers = combined;
+  return combined;
 }
 
 export function getTastings(userId: string): Tasting[] {
+  const mem = getUserMemory(userId);
+  let fromStorage: Tasting[] = [];
   try {
     const raw = localStorage.getItem(`bierlog_tastings_${userId}`);
-    if (!raw) return [];
-    const parsed = safeJsonParse<unknown[]>(raw);
-    if (!Array.isArray(parsed)) return [];
-    return deduplicateById(
-      parsed
-        .map((t: unknown) => sanitizeImportedTasting(t))
-        .filter((t: Tasting | null): t is Tasting => t !== null)
-    );
+    if (raw) {
+      const parsed = safeJsonParse<unknown[]>(raw);
+      if (Array.isArray(parsed)) {
+        fromStorage = parsed
+          .map((t: unknown) => sanitizeImportedTasting(t))
+          .filter((t: Tasting | null): t is Tasting => t !== null);
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+  const combined = deduplicateById([...fromStorage, ...(mem.tastings || [])]);
+  mem.tastings = combined;
+  return combined;
 }
 
 export function saveBeers(userId: string, beers: Beer[]): void {
-  try {
-    localStorage.setItem(`bierlog_beers_${userId}`, JSON.stringify(beers));
-  } catch (e) {
-    console.warn('localStorage saveBeers quota notice:', e);
-  }
+  const deduped = deduplicateById(beers);
+  getUserMemory(userId).beers = deduped;
+  safeSetLocalStorageWithPhotoFallback(`bierlog_beers_${userId}`, deduped);
   queueServerDatabaseSync(userId);
 }
 
 export function saveTastings(userId: string, tastings: Tasting[]): void {
-  try {
-    localStorage.setItem(`bierlog_tastings_${userId}`, JSON.stringify(tastings));
-  } catch (e) {
-    console.warn('localStorage saveTastings quota notice:', e);
-  }
+  const deduped = deduplicateById(tastings);
+  getUserMemory(userId).tastings = deduped;
+  safeSetLocalStorageWithPhotoFallback(`bierlog_tastings_${userId}`, deduped);
   queueServerDatabaseSync(userId);
 }
 
@@ -475,7 +551,6 @@ export function updateTasting(userId: string, tastingId: string, updates: Partia
 export function deleteBeer(userId: string, beerId: string): void {
   const beers = getBeers(userId).filter(b => b.id !== beerId);
   saveBeers(userId, beers);
-  // Delete associated tastings
   const tastings = getTastings(userId).filter(t => t.beerId !== beerId);
   saveTastings(userId, tastings);
 }
@@ -760,27 +835,31 @@ export function importUserData(
 }
 
 export function getBeerSessions(userId: string): BeerSession[] {
+  const mem = getUserMemory(userId);
+  let fromStorage: BeerSession[] = [];
   try {
     const raw = localStorage.getItem(getSessionsKey(userId));
-    if (!raw) return [];
-    const parsed = safeJsonParse<unknown[]>(raw);
-    if (!Array.isArray(parsed)) return [];
-    return deduplicateById(
-      parsed
-        .map((s: unknown) => sanitizeBeerSession(s, userId))
-        .filter((s: BeerSession | null): s is BeerSession => s !== null)
-    );
+    if (raw) {
+      const parsed = safeJsonParse<unknown[]>(raw);
+      if (Array.isArray(parsed)) {
+        fromStorage = parsed
+          .map((s: unknown) => sanitizeBeerSession(s, userId))
+          .filter((s: BeerSession | null): s is BeerSession => s !== null);
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+  const combined = deduplicateById([...fromStorage, ...(mem.sessions || [])]);
+  mem.sessions = combined;
+  return combined;
 }
 
 export function saveBeerSessions(userId: string, sessions: BeerSession[]): void {
-  try {
-    localStorage.setItem(getSessionsKey(userId), JSON.stringify(sessions));
-  } catch (e) {
-    console.warn('localStorage saveBeerSessions quota notice:', e);
-  }
+  const deduped = deduplicateById(sessions);
+  getUserMemory(userId).sessions = deduped;
+  safeSetLocalStorageWithPhotoFallback(getSessionsKey(userId), deduped);
+  queueServerDatabaseSync(userId);
 }
 
 export function addBeerSession(userId: string, sessionData: Omit<BeerSession, 'id' | 'userId'>): BeerSession {
@@ -799,27 +878,30 @@ export function deleteBeerSession(userId: string, sessionId: string): void {
 // --- Beer Glasses Management ---
 
 export function getGlasses(userId: string): BeerGlass[] {
+  const mem = getUserMemory(userId);
+  let fromStorage: BeerGlass[] = [];
   try {
     const raw = localStorage.getItem(getGlassesKey(userId));
-    if (!raw) return [];
-    const parsed = safeJsonParse<unknown[]>(raw);
-    if (!Array.isArray(parsed)) return [];
-    return deduplicateById(
-      parsed
-        .map((g: unknown) => sanitizeImportedGlass(g, userId))
-        .filter((g: BeerGlass | null): g is BeerGlass => g !== null)
-    );
+    if (raw) {
+      const parsed = safeJsonParse<unknown[]>(raw);
+      if (Array.isArray(parsed)) {
+        fromStorage = parsed
+          .map((g: unknown) => sanitizeImportedGlass(g, userId))
+          .filter((g: BeerGlass | null): g is BeerGlass => g !== null);
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+  const combined = deduplicateById([...fromStorage, ...(mem.glasses || [])]);
+  mem.glasses = combined;
+  return combined;
 }
 
 export function saveGlasses(userId: string, glasses: BeerGlass[]): void {
-  try {
-    localStorage.setItem(getGlassesKey(userId), JSON.stringify(glasses));
-  } catch (e) {
-    console.warn('localStorage saveGlasses quota notice:', e);
-  }
+  const deduped = deduplicateById(glasses);
+  getUserMemory(userId).glasses = deduped;
+  safeSetLocalStorageWithPhotoFallback(getGlassesKey(userId), deduped);
   queueServerDatabaseSync(userId);
 }
 
@@ -939,12 +1021,26 @@ export function saveUserSettings(userId: string, settings: UserSettings): UserSe
 
 const syncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-async function buildServerAuthHeaders(includeJsonContentType = true): Promise<Record<string, string>> {
+async function waitForAuthReady(timeoutMs = 1500): Promise<void> {
+  try {
+    if (!auth.currentUser && typeof (auth as any).authStateReady === 'function') {
+      await Promise.race([
+        (auth as any).authStateReady(),
+        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+      ]);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function buildServerAuthHeaders(includeJsonContentType = true): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
   if (includeJsonContentType) {
     headers['Content-Type'] = 'application/json';
   }
   try {
+    await waitForAuthReady();
     if (auth.currentUser) {
       const idToken = await auth.currentUser.getIdToken();
       if (idToken) {
@@ -961,18 +1057,40 @@ export async function pushUserRecordsToServerNow(userId: string): Promise<boolea
   if (!isValidEntityId(userId)) return false;
   try {
     const headers = await buildServerAuthHeaders(true);
-    const res = await fetch('/api/me/records/sync', {
+    const payload = JSON.stringify({
+      categories: getCategories(userId),
+      beers: getBeers(userId),
+      tastings: getTastings(userId),
+      glasses: getGlasses(userId),
+      sessions: getBeerSessions(userId),
+    });
+
+    let res = await fetch('/api/me/records/sync', {
       method: 'POST',
       credentials: 'include',
       headers,
-      body: JSON.stringify({
-        categories: getCategories(userId),
-        beers: getBeers(userId),
-        tastings: getTastings(userId),
-        glasses: getGlasses(userId),
-        sessions: getBeerSessions(userId),
-      }),
+      body: payload,
     });
+
+    if (res.status === 401 && auth.currentUser) {
+      const freshToken = await auth.currentUser.getIdToken(true);
+      await fetch('/api/auth/google', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: freshToken }),
+      });
+      res = await fetch('/api/me/records/sync', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${freshToken}`,
+        },
+        body: payload,
+      });
+    }
+
     return res.ok;
   } catch {
     return false;
@@ -990,16 +1108,16 @@ export function queueServerDatabaseSync(userId: string): void {
   const timer = setTimeout(async () => {
     syncTimers.delete(userId);
     await pushUserRecordsToServerNow(userId);
-  }, 400);
+  }, 300);
 
   syncTimers.set(userId, timer);
 }
 
 /**
- * Volledige tweerichting-synchronisatie tussen de browser en de server-database:
+ * Volledige tweerichting-synchronisatie tussen de browser en de lokale server-database:
  * 1) Voegt eventuele lokale dubbele UIDs voor dezelfde gebruiker samen
- * 2) Haalt server-records op via /api/me en voegt ze samen met lokale records (zodat er nooit 1 bier verloren gaat)
- * 3) Pusht de complete samengevoegde collectie (bijv. alle 26 bieren) direct naar /api/me/records/sync
+ * 2) Haalt server-records (inclusief foto's) op via /api/me en voegt ze samen met lokale records
+ * 3) Pusht de complete samengevoegde collectie (inclusief alle foto's) direct naar /api/me/records/sync
  */
 export async function syncUserWithServerDatabase(user: UserAccount): Promise<boolean> {
   if (!user || !isValidEntityId(user.id)) return false;
@@ -1008,11 +1126,29 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
 
   try {
     const getHeaders = await buildServerAuthHeaders(false);
-    const res = await fetch('/api/me', {
+    let res = await fetch('/api/me', {
       method: 'GET',
       credentials: 'include',
       headers: getHeaders,
     });
+
+    if (res.status === 401 && auth.currentUser) {
+      const freshToken = await auth.currentUser.getIdToken(true);
+      await fetch('/api/auth/google', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: freshToken }),
+      });
+      res = await fetch('/api/me', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          ...getHeaders,
+          Authorization: `Bearer ${freshToken}`,
+        },
+      });
+    }
 
     let localCats = getCategories(userId);
     let localBeers = getBeers(userId);
@@ -1051,20 +1187,26 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
               .filter((g): g is BeerGlass => g !== null)
           : [];
 
-        // Merge server + lokaal (lokale wijzigingen krijgen voorrang bij gelijke ID)
+        // Merge server + lokaal (en behoud altijd foto's indien aanwezig)
         localCats = deduplicateById([...serverCats, ...localCats]);
         localBeers = deduplicateById([...serverBeers, ...localBeers]);
         localTastings = deduplicateById([...serverTastings, ...localTastings]);
         localGlasses = deduplicateById([...serverGlasses, ...localGlasses]);
 
-        localStorage.setItem(`bierlog_categories_${userId}`, JSON.stringify(localCats));
-        localStorage.setItem(`bierlog_beers_${userId}`, JSON.stringify(localBeers));
-        localStorage.setItem(`bierlog_tastings_${userId}`, JSON.stringify(localTastings));
-        localStorage.setItem(getGlassesKey(userId), JSON.stringify(localGlasses));
+        const mem = getUserMemory(userId);
+        mem.categories = localCats;
+        mem.beers = localBeers;
+        mem.tastings = localTastings;
+        mem.glasses = localGlasses;
+
+        safeSetLocalStorageWithPhotoFallback(`bierlog_categories_${userId}`, localCats);
+        safeSetLocalStorageWithPhotoFallback(`bierlog_beers_${userId}`, localBeers);
+        safeSetLocalStorageWithPhotoFallback(`bierlog_tastings_${userId}`, localTastings);
+        safeSetLocalStorageWithPhotoFallback(getGlassesKey(userId), localGlasses);
       }
     }
 
-    // Push de volledige samengevoegde collectie direct naar de server-database
+    // Push de volledige samengevoegde collectie (inclusief alle foto's) direct naar de lokale server-database
     await pushUserRecordsToServerNow(userId);
     return true;
   } catch {
@@ -1079,3 +1221,4 @@ export async function hydrateUserFromServerDatabase(userId: string): Promise<boo
   }
   return false;
 }
+

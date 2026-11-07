@@ -634,7 +634,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               {/* Resterend / Nog Over */}
               <div className="p-5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                  <span>Vrije Opslagruimte</span>
+                  <span>Vrije Serveropslag</span>
                   <CheckCircle2 className="w-4 h-4" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black text-emerald-300 font-mono">
@@ -642,10 +642,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 </div>
                 <div className="text-xs text-zinc-400 flex items-center justify-between pt-1">
                   <span>
-                    Vrij in MB: <strong className="text-zinc-200">{formatStorageMB(stats.totalBytesRemaining, 0)}</strong>
+                    Totaal: <strong className="text-zinc-200">{formatByMode(stats.quotaBytes, true)}</strong>
                   </span>
                   <span className="text-[11px] text-emerald-400/90 font-semibold">
-                    {formatStorageGB(stats.totalBytesRemaining, 2)} vrij
+                    {formatStorageMB(stats.totalBytesRemaining, 0)} vrij
                   </span>
                 </div>
               </div>

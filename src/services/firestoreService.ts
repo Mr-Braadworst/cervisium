@@ -1,8 +1,7 @@
-import { UserAccount, Category, Beer, Tasting, BeerGlass, PubGlassDeal, DutchProvince } from '../types';
+import { UserAccount, Category, Beer, Tasting, BeerGlass, PubGlassDeal } from '../types';
 import {
   generateSecureId,
   sanitizeImageUrl,
-  sanitizeExternalUrl,
   sanitizePubDeal,
   sanitizePhotoPosition,
   sanitizeString,
@@ -17,11 +16,11 @@ import {
   getDoc,
   setDoc,
   deleteDoc,
-  updateDoc,
   onSnapshot,
   handleFirestoreError,
   OperationType,
   FirebaseUser,
+  isClientFirestoreEnabled,
 } from '../firebase';
 
 function isGenericPlaceholderName(val: unknown, uid: string): boolean {
@@ -55,6 +54,7 @@ function formatReadableNameFromEmail(email?: string | null): string {
 }
 
 export async function syncUserProfileFirestore(user: UserAccount): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${user.id}`;
   try {
     const docRef = doc(db, 'users', user.id);
@@ -91,11 +91,6 @@ export async function syncUserProfileFirestore(user: UserAccount): Promise<void>
   }
 }
 
-/**
- * Haalt bij het inloggen het bestaande profiel uit de Firestore database op.
- * Staat er al een aangepaste naam in de database, dan blijft die behouden;
- * anders wordt automatisch de echte Google-accountnaam gebruikt én opgeslagen in de database.
- */
 export async function fetchAndSyncGoogleUserProfile(
   fbUser: FirebaseUser,
   localFallback?: UserAccount | null
@@ -111,40 +106,44 @@ export async function fetchAndSyncGoogleUserProfile(
   let resolvedName = googleDisplayName;
   let resolvedCreatedAt = localFallback?.createdAt || nowIso;
 
-  try {
-    const docRef = doc(db, 'users', uid);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      if (typeof data.name === 'string' && !isGenericPlaceholderName(data.name, uid)) {
-        resolvedName = data.name.trim();
-      }
-      if (typeof data.createdAt === 'string' && data.createdAt) {
-        resolvedCreatedAt = data.createdAt;
-      }
-    } else if (
-      localFallback &&
-      localFallback.id === uid &&
-      !isGenericPlaceholderName(localFallback.name, uid)
-    ) {
-      resolvedName = localFallback.name.trim();
-    }
+  if (
+    localFallback &&
+    localFallback.id === uid &&
+    !isGenericPlaceholderName(localFallback.name, uid)
+  ) {
+    resolvedName = localFallback.name.trim();
+  }
 
-    await setDoc(
-      docRef,
-      {
-        uid,
-        name: resolvedName,
-        googleName: googleDisplayName,
-        email: googleEmail,
-        avatarUrl: googleAvatar || '',
-        createdAt: resolvedCreatedAt,
-        lastActiveAt: nowIso,
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    console.warn('Firestore profiel synchronisatie melding:', err);
+  if (isClientFirestoreEnabled()) {
+    try {
+      const docRef = doc(db, 'users', uid);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (typeof data.name === 'string' && !isGenericPlaceholderName(data.name, uid)) {
+          resolvedName = data.name.trim();
+        }
+        if (typeof data.createdAt === 'string' && data.createdAt) {
+          resolvedCreatedAt = data.createdAt;
+        }
+      }
+
+      await setDoc(
+        docRef,
+        {
+          uid,
+          name: resolvedName,
+          googleName: googleDisplayName,
+          email: googleEmail,
+          avatarUrl: googleAvatar || '',
+          createdAt: resolvedCreatedAt,
+          lastActiveAt: nowIso,
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn('Firestore profiel synchronisatie melding:', err);
+    }
   }
 
   return {
@@ -161,6 +160,7 @@ export function subscribeToUserProfile(
   userId: string,
   onProfile: (profile: Partial<UserAccount>) => void
 ) {
+  if (!isClientFirestoreEnabled()) return () => {};
   const docRef = doc(db, 'users', userId);
   return onSnapshot(
     docRef,
@@ -185,9 +185,7 @@ export function subscribeToUserProfile(
         onProfile(updates);
       }
     },
-    () => {
-      // Negeer fouten bij uitloggen of ontbrekende rechten
-    }
+    () => {}
   );
 }
 
@@ -196,6 +194,7 @@ export function subscribeToCategories(
   onData: (categories: Category[]) => void,
   onError?: (err: Error) => void
 ) {
+  if (!isClientFirestoreEnabled()) return () => {};
   const path = `users/${userId}/categories`;
   const colRef = collection(db, 'users', userId, 'categories');
   return onSnapshot(
@@ -231,7 +230,6 @@ export async function addCategoryFirestore(
   description?: string
 ): Promise<Category> {
   const catId = generateSecureId('cat');
-  const path = `users/${userId}/categories/${catId}`;
   const safeColor = sanitizeHexColor(color);
   const newCat: Category = {
     id: catId,
@@ -241,6 +239,9 @@ export async function addCategoryFirestore(
     createdAt: new Date().toISOString(),
   };
 
+  if (!isClientFirestoreEnabled()) return newCat;
+
+  const path = `users/${userId}/categories/${catId}`;
   try {
     const docRef = doc(db, 'users', userId, 'categories', catId);
     await setDoc(docRef, {
@@ -263,6 +264,7 @@ export async function updateCategoryFirestore(
   color: string,
   description?: string
 ): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/categories/${id}`;
   try {
     const docRef = doc(db, 'users', userId, 'categories', id);
@@ -282,6 +284,7 @@ export async function updateCategoryFirestore(
 }
 
 export async function deleteCategoryFirestore(userId: string, id: string): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/categories/${id}`;
   try {
     const docRef = doc(db, 'users', userId, 'categories', id);
@@ -296,6 +299,7 @@ export function subscribeToBeers(
   onData: (beers: Beer[]) => void,
   onError?: (err: Error) => void
 ) {
+  if (!isClientFirestoreEnabled()) return () => {};
   const path = `users/${userId}/beers`;
   const colRef = collection(db, 'users', userId, 'beers');
   return onSnapshot(
@@ -340,7 +344,6 @@ export async function addBeerFirestore(
   customId?: string
 ): Promise<Beer> {
   const beerId = customId || generateSecureId('beer');
-  const path = `users/${userId}/beers/${beerId}`;
   const now = new Date().toISOString();
   const safePhoto = sanitizeImageUrl(beerData.photoUrl);
   const safePos = sanitizePhotoPosition(beerData.photoPosition);
@@ -359,6 +362,9 @@ export async function addBeerFirestore(
     dateAdded: sanitizeString(beerData.dateAdded, 60, now),
   };
 
+  if (!isClientFirestoreEnabled()) return newBeer;
+
+  const path = `users/${userId}/beers/${beerId}`;
   try {
     const docRef = doc(db, 'users', userId, 'beers', beerId);
     const payload: Record<string, unknown> = {
@@ -385,6 +391,7 @@ export async function updateBeerFirestore(
   beerId: string,
   updates: Partial<Beer>
 ): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/beers/${beerId}`;
   try {
     const docRef = doc(db, 'users', userId, 'beers', beerId);
@@ -427,6 +434,7 @@ export async function updateBeerFirestore(
 }
 
 export async function deleteBeerFirestore(userId: string, beerId: string): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/beers/${beerId}`;
   try {
     const docRef = doc(db, 'users', userId, 'beers', beerId);
@@ -441,6 +449,7 @@ export function subscribeToTastings(
   onData: (tastings: Tasting[]) => void,
   onError?: (err: Error) => void
 ) {
+  if (!isClientFirestoreEnabled()) return () => {};
   const path = `users/${userId}/tastings`;
   const colRef = collection(db, 'users', userId, 'tastings');
   return onSnapshot(
@@ -484,7 +493,6 @@ export async function addTastingFirestore(
   customId?: string
 ): Promise<Tasting> {
   const tastingId = customId || generateSecureId('tast');
-  const path = `users/${userId}/tastings/${tastingId}`;
   const safePhoto = sanitizeImageUrl(tastingData.photoUrl);
   const safePos = sanitizePhotoPosition(tastingData.photoPosition);
   const safeZoom = tastingData.photoZoom
@@ -505,6 +513,9 @@ export async function addTastingFirestore(
     date: sanitizeString(tastingData.date, 60, new Date().toISOString().split('T')[0]),
   };
 
+  if (!isClientFirestoreEnabled()) return newTasting;
+
+  const path = `users/${userId}/tastings/${tastingId}`;
   try {
     const docRef = doc(db, 'users', userId, 'tastings', tastingId);
     const payload: Record<string, unknown> = {
@@ -527,6 +538,7 @@ export async function addTastingFirestore(
 }
 
 export async function deleteTastingFirestore(userId: string, tastingId: string): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/tastings/${tastingId}`;
   try {
     const docRef = doc(db, 'users', userId, 'tastings', tastingId);
@@ -535,11 +547,13 @@ export async function deleteTastingFirestore(userId: string, tastingId: string):
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
+
 export async function updateTastingFirestore(
   userId: string,
   tastingId: string,
   updates: Partial<Tasting>
 ): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/tastings/${tastingId}`;
   try {
     const docRef = doc(db, 'users', userId, 'tastings', tastingId);
@@ -587,6 +601,7 @@ export function subscribeToGlasses(
   onData: (glasses: BeerGlass[]) => void,
   onError?: (err: Error) => void
 ) {
+  if (!isClientFirestoreEnabled()) return () => {};
   const path = `users/${userId}/glasses`;
   const colRef = collection(db, 'users', userId, 'glasses');
   return onSnapshot(
@@ -633,7 +648,6 @@ export async function addGlassFirestore(
   customId?: string
 ): Promise<BeerGlass> {
   const glassId = customId || generateSecureId('glass');
-  const path = `users/${userId}/glasses/${glassId}`;
   const now = new Date().toISOString();
   const safePhoto = sanitizeImageUrl(glassData.photoUrl);
   const safePos = sanitizePhotoPosition(glassData.photoPosition);
@@ -656,6 +670,9 @@ export async function addGlassFirestore(
     dateAdded: sanitizeString(glassData.dateAdded, 60, now),
   };
 
+  if (!isClientFirestoreEnabled()) return newGlass;
+
+  const path = `users/${userId}/glasses/${glassId}`;
   try {
     const docRef = doc(db, 'users', userId, 'glasses', glassId);
     const payload: Record<string, unknown> = {
@@ -684,6 +701,7 @@ export async function updateGlassFirestore(
   glassId: string,
   updates: Partial<BeerGlass>
 ): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/glasses/${glassId}`;
   try {
     const docRef = doc(db, 'users', userId, 'glasses', glassId);
@@ -732,6 +750,7 @@ export async function updateGlassFirestore(
 }
 
 export async function deleteGlassFirestore(userId: string, glassId: string): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/glasses/${glassId}`;
   try {
     const docRef = doc(db, 'users', userId, 'glasses', glassId);
@@ -746,6 +765,7 @@ export function subscribeToPubDeals(
   onData: (deals: PubGlassDeal[]) => void,
   onError?: (err: Error) => void
 ) {
+  if (!isClientFirestoreEnabled()) return () => {};
   const path = `users/${userId}/pubDeals`;
   const colRef = collection(db, 'users', userId, 'pubDeals');
   return onSnapshot(
@@ -774,6 +794,7 @@ export function subscribeToPubDeals(
 }
 
 export async function savePubDealFirestore(userId: string, rawDeal: PubGlassDeal): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const deal = sanitizePubDeal(rawDeal);
   const path = `users/${userId}/pubDeals/${deal.id}`;
   try {
@@ -806,6 +827,7 @@ export async function savePubDealFirestore(userId: string, rawDeal: PubGlassDeal
 }
 
 export async function deletePubDealFirestore(userId: string, dealId: string): Promise<void> {
+  if (!isClientFirestoreEnabled()) return;
   const path = `users/${userId}/pubDeals/${dealId}`;
   try {
     const docRef = doc(db, 'users', userId, 'pubDeals', dealId);
@@ -815,10 +837,6 @@ export async function deletePubDealFirestore(userId: string, dealId: string): Pr
   }
 }
 
-/**
- * Synchroniseert alle geïmporteerde data (inclusief geüploade foto's voor bieren, proefnotities en glazen)
- * direct naar Cloud Firestore zodat real-time listeners en andere apparaten dezelfde foto's en collectie hebben.
- */
 export async function syncImportedDataToFirestore(
   userId: string,
   data: {
@@ -828,7 +846,8 @@ export async function syncImportedDataToFirestore(
     glasses: BeerGlass[];
   }
 ): Promise<void> {
-  // 1. Categorieën
+  if (!isClientFirestoreEnabled()) return;
+
   for (const cat of data.categories) {
     try {
       const docRef = doc(db, 'users', userId, 'categories', cat.id);
@@ -848,7 +867,6 @@ export async function syncImportedDataToFirestore(
     }
   }
 
-  // 2. Bieren (inclusief geüploade photoUrl, photoPosition & photoZoom)
   for (const beer of data.beers) {
     try {
       const docRef = doc(db, 'users', userId, 'beers', beer.id);
@@ -874,7 +892,6 @@ export async function syncImportedDataToFirestore(
     }
   }
 
-  // 3. Proefnotities (inclusief geüploade photoUrl, photoPosition & photoZoom)
   for (const tasting of data.tastings) {
     try {
       const docRef = doc(db, 'users', userId, 'tastings', tasting.id);
@@ -904,7 +921,6 @@ export async function syncImportedDataToFirestore(
     }
   }
 
-  // 4. Bierglazen (inclusief geüploade photoUrl, photoPosition & photoZoom)
   for (const glass of data.glasses) {
     try {
       const docRef = doc(db, 'users', userId, 'glasses', glass.id);
@@ -932,4 +948,5 @@ export async function syncImportedDataToFirestore(
     }
   }
 }
+
 

@@ -32,6 +32,7 @@ import {
   DEFAULT_USER_SETTINGS,
   ImportedBackupPayload,
   syncUserWithServerDatabase,
+  pushUserRecordsToServerNow,
 } from './services/storage';
 
 import {
@@ -86,11 +87,7 @@ import { Eye, ShieldCheck, ArrowLeft } from 'lucide-react';
 
 function isClientFirestoreEnabled(): boolean {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
-  if (env.VITE_USE_FIRESTORE === 'false') return false;
-  if (typeof window !== 'undefined' && (window as unknown as { __BIERLOG_FIREBASE_CONFIG__?: unknown }).__BIERLOG_FIREBASE_CONFIG__) {
-    return env.VITE_USE_FIRESTORE === 'true';
-  }
-  return true;
+  return env.VITE_USE_FIRESTORE === 'true';
 }
 
 export default function App() {
@@ -813,7 +810,7 @@ export default function App() {
     setUserSettings(saved);
   };
 
-  // Verwerk geïmporteerde back-up (inclusief alle geüploade foto's) in state én Cloud Firestore
+  // Verwerk geïmporteerde back-up (inclusief alle geüploade foto's) direct in de lokale server-database
   const handleDataImported = async (importedData?: ImportedBackupPayload) => {
     if (!activeUser) return;
     if (importedData) {
@@ -821,13 +818,17 @@ export default function App() {
       setBeers(importedData.beers);
       setTastings(importedData.tastings);
       setGlasses(importedData.glasses);
-      try {
-        await syncImportedDataToFirestore(activeUser.id, importedData);
-      } catch (e) {
-        console.warn('Firestore import sync melding:', e);
+      await pushUserRecordsToServerNow(activeUser.id);
+      if (isClientFirestoreEnabled()) {
+        try {
+          await syncImportedDataToFirestore(activeUser.id, importedData);
+        } catch (e) {
+          console.warn('Firestore import sync melding:', e);
+        }
       }
     } else {
       reloadDataForUser(activeUser);
+      await pushUserRecordsToServerNow(activeUser.id);
     }
   };
 
