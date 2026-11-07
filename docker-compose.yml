@@ -1,0 +1,23 @@
+services:
+  # ----------------------------------------------------------------------------
+  # BierLog All-in-One Container (Website + Express API + Eigen PostgreSQL DB)
+  # Alles draait volledig binnenin deze ene container!
+  #
+  # Tip: Vervang hieronder bij `context:` de waarde door jouw GitHub-link
+  # (bijv. context: https://github.com/JOUW_NAAM/JOUW_REPO.git) of geef
+  # GITHUB_REPO mee in je commando om direct vanuit GitHub te bouwen!
+  # ----------------------------------------------------------------------------
+  bierlog:
+    build:
+      context: ${GITHUB_REPO:-.}
+      dockerfile: Dockerfile
+    container_name: bierlog
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      # Bewaart de interne PostgreSQL database én sessie-sleutel veilig op schijf
+      - bierlog_data:/data
+
+volumes:
+  bierlog_data:

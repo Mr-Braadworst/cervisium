@@ -1,0 +1,6 @@
+{
+  "name": "BierLog - Persoonlijke Bier Tracker",
+  "description": "Jouw persoonlijke bier collectie en beoordelingsapp met categoriebeheer, proefnotities en statistieken.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

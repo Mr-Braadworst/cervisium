@@ -1,0 +1,280 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions (Zero-Trust Security & Input Validation)
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Beveiligde Super-Admin check via SHA-256 hash zodat het e-mailadres niet in platte tekst in de repo staat
+    function isAdmin() {
+      return isAuthenticated()
+        && request.auth.token.email is string
+        && hashing.sha256(request.auth.token.email.lower().toUtf8()).toHexString().lower() == "b31f85f31cdb5947fa2cdf12ceaf3fd149a5c11b53a9f922acbb44da4b22f0e0"
+        && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() >= 1
+        && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOptionalString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isOptionalNumber(data, field, minVal, maxVal) {
+      return !(field in data) || (data[field] is number && data[field] >= minVal && data[field] <= maxVal);
+    }
+
+    function isOptionalBool(data, field) {
+      return !(field in data) || (data[field] is bool);
+    }
+
+    // Beveiligt tegen XSS (javascript: / data:text/html / image/svg+xml) in URL velden
+    function isSafeImageOrEmpty(data, field) {
+      return !(field in data)
+        || (
+          data[field] is string
+          && data[field].size() <= 1048000
+          && (
+            data[field] == ''
+            || data[field].matches('^https?://.*')
+            || data[field].matches('^data:image/(jpeg|jpg|png|webp|gif|avif|bmp|heic|heif)(;[a-zA-Z0-9\\-=+.]+)*;base64,.*')
+          )
+        );
+    }
+
+    function isSafeHttpUrlOrEmpty(data, field) {
+      return !(field in data)
+        || (
+          data[field] is string
+          && data[field].size() <= 2048
+          && (data[field] == '' || data[field].matches('^https?://.*'))
+        );
+    }
+
+    function isValidHexColor(color) {
+      return color is string
+        && color.size() >= 4
+        && color.size() <= 9
+        && color.matches('^#[0-9A-Fa-f]{3,8}$');
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUserProfileData(data, userId) {
+      return data.keys().hasOnly([
+          'uid', 'name', 'googleName', 'email', 'avatarUrl',
+          'createdAt', 'lastActiveAt', 'updatedAt', 'updatedByAdminAt'
+        ])
+        && ('uid' in data) && data.uid == userId
+        && isOptionalString(data, 'name', 100)
+        && isOptionalString(data, 'googleName', 100)
+        && isOptionalString(data, 'email', 180)
+        && isSafeImageOrEmpty(data, 'avatarUrl')
+        && isOptionalString(data, 'createdAt', 60)
+        && isOptionalString(data, 'lastActiveAt', 60)
+        && isOptionalString(data, 'updatedAt', 60)
+        && isOptionalString(data, 'updatedByAdminAt', 60);
+    }
+
+    function isValidCategoryData(data, userId) {
+      return data.keys().hasOnly(['userId', 'name', 'color', 'description', 'createdAt'])
+        && ('userId' in data) && data.userId == userId
+        && ('name' in data) && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && ('color' in data) && isValidHexColor(data.color)
+        && isOptionalString(data, 'description', 500)
+        && isOptionalString(data, 'createdAt', 60);
+    }
+
+    function isValidBeerData(data, userId) {
+      return data.keys().hasOnly([
+          'userId', 'name', 'brewery', 'categoryId', 'abv', 'favorite',
+          'photoUrl', 'photoPosition', 'photoZoom', 'dateAdded', 'updatedAt'
+        ])
+        && ('userId' in data) && data.userId == userId
+        && (!('name' in data) || (data.name is string && data.name.size() >= 1 && data.name.size() <= 150))
+        && isOptionalString(data, 'brewery', 150)
+        && isOptionalString(data, 'categoryId', 128)
+        && isOptionalNumber(data, 'abv', 0, 100)
+        && isOptionalBool(data, 'favorite')
+        && isSafeImageOrEmpty(data, 'photoUrl')
+        && isOptionalString(data, 'photoPosition', 40)
+        && isOptionalNumber(data, 'photoZoom', 0.5, 5.0)
+        && isOptionalString(data, 'dateAdded', 60)
+        && isOptionalString(data, 'updatedAt', 60);
+    }
+
+    function isValidTastingData(data, userId) {
+      return data.keys().hasOnly([
+          'userId', 'beerId', 'rating', 'notes', 'location', 'servingType',
+          'photoUrl', 'photoPosition', 'photoZoom', 'date'
+        ])
+        && ('userId' in data) && data.userId == userId
+        && (!('beerId' in data) || (data.beerId is string && data.beerId.size() >= 1 && data.beerId.size() <= 128))
+        && isOptionalNumber(data, 'rating', 1, 10)
+        && isOptionalString(data, 'notes', 3000)
+        && isOptionalString(data, 'location', 200)
+        && isOptionalString(data, 'servingType', 20)
+        && isSafeImageOrEmpty(data, 'photoUrl')
+        && isOptionalString(data, 'photoPosition', 40)
+        && isOptionalNumber(data, 'photoZoom', 0.5, 5.0)
+        && isOptionalString(data, 'date', 60);
+    }
+
+    function isValidGlassData(data, userId) {
+      return data.keys().hasOnly([
+          'userId', 'name', 'brand', 'glassType', 'quantity', 'volumeCl',
+          'photoUrl', 'photoPosition', 'photoZoom', 'notes', 'favorite',
+          'dateAdded', 'updatedAt'
+        ])
+        && ('userId' in data) && data.userId == userId
+        && (!('name' in data) || (data.name is string && data.name.size() >= 1 && data.name.size() <= 150))
+        && isOptionalString(data, 'brand', 150)
+        && isOptionalString(data, 'glassType', 100)
+        && isOptionalNumber(data, 'quantity', 0, 99999)
+        && isOptionalNumber(data, 'volumeCl', 0, 1000)
+        && isSafeImageOrEmpty(data, 'photoUrl')
+        && isOptionalString(data, 'photoPosition', 40)
+        && isOptionalNumber(data, 'photoZoom', 0.5, 5.0)
+        && isOptionalString(data, 'notes', 2000)
+        && isOptionalBool(data, 'favorite')
+        && isOptionalString(data, 'dateAdded', 60)
+        && isOptionalString(data, 'updatedAt', 60);
+    }
+
+    function isValidPubDealData(data, userId) {
+      return data.keys().hasOnly([
+          'userId', 'pubName', 'city', 'province', 'address', 'lat', 'lng',
+          'hasActiveDeal', 'dealCategory', 'dealTitle', 'beerBrand',
+          'sourceName', 'sourceUrl', 'checkedAt', 'actieEindDatum', 'submittedBy'
+        ])
+        && ('userId' in data) && data.userId == userId
+        && (!('pubName' in data) || (data.pubName is string && data.pubName.size() >= 1 && data.pubName.size() <= 200))
+        && isOptionalString(data, 'city', 120)
+        && isOptionalString(data, 'province', 50)
+        && isOptionalString(data, 'address', 250)
+        && isOptionalNumber(data, 'lat', -90, 90)
+        && isOptionalNumber(data, 'lng', -180, 180)
+        && isOptionalBool(data, 'hasActiveDeal')
+        && isOptionalString(data, 'dealCategory', 40)
+        && isOptionalString(data, 'dealTitle', 300)
+        && isOptionalString(data, 'beerBrand', 150)
+        && isOptionalString(data, 'sourceName', 150)
+        && isSafeHttpUrlOrEmpty(data, 'sourceUrl')
+        && isOptionalString(data, 'checkedAt', 60)
+        && isOptionalString(data, 'actieEindDatum', 60)
+        && isOptionalString(data, 'submittedBy', 120);
+    }
+
+    // ===============================================================
+    // Connection Health Check (read-only)
+    // ===============================================================
+    match /test/connection {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
+    // ===============================================================
+    // User Scoped Collections (Strict Owner-Only + Verified Super-Admin)
+    // ===============================================================
+    match /users/{userId} {
+      allow get: if (isOwner(userId) || isAdmin()) && isValidId(userId);
+      allow list: if isOwner(userId) || isAdmin();
+      allow create, update: if (isOwner(userId) || isAdmin())
+        && isValidId(userId)
+        && isValidUserProfileData(request.resource.data, userId);
+      allow delete: if (isOwner(userId) || isAdmin()) && isValidId(userId);
+
+      match /categories/{categoryId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(categoryId);
+        allow list: if isOwner(userId) || isAdmin();
+        allow create, update: if (isOwner(userId) || isAdmin())
+          && isValidId(categoryId)
+          && isValidCategoryData(request.resource.data, userId);
+        allow delete: if (isOwner(userId) || isAdmin()) && isValidId(categoryId);
+      }
+
+      match /beers/{beerId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(beerId);
+        allow list: if isOwner(userId) || isAdmin();
+        allow create, update: if (isOwner(userId) || isAdmin())
+          && isValidId(beerId)
+          && isValidBeerData(request.resource.data, userId);
+        allow delete: if (isOwner(userId) || isAdmin()) && isValidId(beerId);
+      }
+
+      match /tastings/{tastingId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(tastingId);
+        allow list: if isOwner(userId) || isAdmin();
+        allow create, update: if (isOwner(userId) || isAdmin())
+          && isValidId(tastingId)
+          && isValidTastingData(request.resource.data, userId);
+        allow delete: if (isOwner(userId) || isAdmin()) && isValidId(tastingId);
+      }
+
+      match /glasses/{glassId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(glassId);
+        allow list: if isOwner(userId) || isAdmin();
+        allow create, update: if (isOwner(userId) || isAdmin())
+          && isValidId(glassId)
+          && isValidGlassData(request.resource.data, userId);
+        allow delete: if (isOwner(userId) || isAdmin()) && isValidId(glassId);
+      }
+
+      match /pubDeals/{dealId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(dealId);
+        allow list: if isOwner(userId) || isAdmin();
+        allow create, update: if (isOwner(userId) || isAdmin())
+          && isValidId(dealId)
+          && isValidPubDealData(request.resource.data, userId);
+        allow delete: if (isOwner(userId) || isAdmin()) && isValidId(dealId);
+      }
+    }
+
+    // ===============================================================
+    // Super-Admin CollectionGroup Queries
+    // Hiermee vindt de Admin-scan ook alle bestaande gebruikers in de database
+    // die bieren, glazen, proefnotities, categorieën of kroeg-deals hebben
+    // zonder dat er destijds een los /users/{userId} profieldocument bestond.
+    // ===============================================================
+    match /{path=**}/categories/{categoryId} {
+      allow get, list: if isAdmin();
+    }
+
+    match /{path=**}/beers/{beerId} {
+      allow get, list: if isAdmin();
+    }
+
+    match /{path=**}/tastings/{tastingId} {
+      allow get, list: if isAdmin();
+    }
+
+    match /{path=**}/glasses/{glassId} {
+      allow get, list: if isAdmin();
+    }
+
+    match /{path=**}/pubDeals/{dealId} {
+      allow get, list: if isAdmin();
+    }
+
+    // Default Deny voor al het overige verkeer
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #090a0f;
+    color: #f4f4f5;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* Licht Modus (White Thema) */
+html.light-mode {
+  --color-zinc-950: #ffffff;
+  --color-zinc-900: #f8fafc;
+  --color-zinc-800: #e2e8f0;
+  --color-zinc-700: #cbd5e1;
+  --color-zinc-600: #64748b;
+  --color-zinc-500: #475569;
+  --color-zinc-400: #334155;
+  --color-zinc-300: #1e293b;
+  --color-zinc-200: #0f172a;
+  --color-zinc-100: #09090b;
+  --color-zinc-50: #09090b;
+
+  /* Zachte lichte achtergronden voor hero-banners */
+  --color-amber-950: #fffbeb;
+  --color-emerald-950: #ecfdf5;
+  --color-rose-950: #fff1f2;
+  --color-purple-950: #faf5ff;
+  --color-sky-950: #f0f9ff;
+
+  /* Beter contrast voor accentteksten op een witte achtergrond */
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
+  --color-sky-300: #0369a1;
+  --color-sky-400: #0284c7;
+  --color-purple-300: #6d28d9;
+  --color-purple-400: #7c3aed;
+
+  color-scheme: light;
+}
+
+html.light-mode body {
+  background-color: #ffffff;
+  color: #09090b;
+}
+
+/* Houd tekst op gekleurde knoppen (amber/emerald) donker en scherp leesbaar in licht modus */
+html.light-mode .bg-amber-500.text-zinc-950,
+html.light-mode .bg-emerald-500.text-zinc-950,
+html.light-mode .from-amber-400.text-zinc-950 {
+  color: #09090b !important;
+}
+
+html.light-mode .fill-zinc-950 {
+  fill: #09090b !important;
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090a0f;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #d97706;
+}
+
+html.light-mode ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+html.light-mode ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+html.light-mode ::-webkit-scrollbar-thumb:hover {
+  background: #d97706;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+

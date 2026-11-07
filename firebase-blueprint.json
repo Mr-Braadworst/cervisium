@@ -1,0 +1,139 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Persoonlijke bierstijl of categorie aangemaakt door de gebruiker",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "color": { "type": "string", "maxLength": 30 },
+        "description": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "name", "color", "createdAt"]
+    },
+    "Beer": {
+      "title": "Beer",
+      "description": "Bierprofiel opgeslagen in de persoonlijke collectie",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 150 },
+        "brewery": { "type": "string", "maxLength": 150 },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "abv": { "type": "number" },
+        "favorite": { "type": "boolean" },
+        "photoUrl": { "type": "string" },
+        "photoPosition": { "type": "string", "maxLength": 40 },
+        "photoZoom": { "type": "number" },
+        "dateAdded": { "type": "string", "maxLength": 60 },
+        "updatedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["userId", "name", "categoryId", "abv", "dateAdded"]
+    },
+    "Tasting": {
+      "title": "Tasting",
+      "description": "Proefmoment met score, notities en locatie",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "beerId": { "type": "string", "maxLength": 128 },
+        "rating": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 3000 },
+        "location": { "type": "string", "maxLength": 200 },
+        "servingType": { "type": "string", "maxLength": 20 },
+        "photoUrl": { "type": "string" },
+        "photoPosition": { "type": "string", "maxLength": 40 },
+        "photoZoom": { "type": "number" },
+        "date": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["userId", "beerId", "rating", "date"]
+    },
+    "BeerGlass": {
+      "title": "BeerGlass",
+      "description": "Speciaalbierglas in de persoonlijke glazenkast",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 150 },
+        "brand": { "type": "string", "maxLength": 150 },
+        "glassType": { "type": "string", "maxLength": 100 },
+        "quantity": { "type": "number" },
+        "volumeCl": { "type": "number" },
+        "photoUrl": { "type": "string" },
+        "photoPosition": { "type": "string", "maxLength": 40 },
+        "photoZoom": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "favorite": { "type": "boolean" },
+        "dateAdded": { "type": "string", "maxLength": 60 },
+        "updatedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["userId", "name", "quantity", "dateAdded"]
+    },
+    "PubGlassDeal": {
+      "title": "PubGlassDeal",
+      "description": "Landelijke kroeg met speciaalbier glazen-actie, verplichte bron-URL en einddatum",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "pubName": { "type": "string", "maxLength": 200 },
+        "city": { "type": "string", "maxLength": 120 },
+        "province": { "type": "string", "maxLength": 50 },
+        "address": { "type": "string", "maxLength": 250 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "hasActiveDeal": { "type": "boolean" },
+        "dealCategory": { "type": "string", "maxLength": 40 },
+        "dealTitle": { "type": "string", "maxLength": 300 },
+        "beerBrand": { "type": "string", "maxLength": 150 },
+        "sourceName": { "type": "string", "maxLength": 150 },
+        "sourceUrl": { "type": "string", "maxLength": 2048 },
+        "checkedAt": { "type": "string", "maxLength": 60 },
+        "actieEindDatum": { "type": "string", "maxLength": 60 },
+        "submittedBy": { "type": "string", "maxLength": 120 }
+      },
+      "required": ["userId", "pubName", "city", "province", "hasActiveDeal", "dealTitle", "sourceName", "sourceUrl", "checkedAt", "actieEindDatum"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Gebruikersprofiel en gebruiksmetadata voor account- en adminbeheer",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "avatarUrl": { "type": "string", "maxLength": 2048 },
+        "createdAt": { "type": "string", "maxLength": 60 },
+        "lastActiveAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["uid", "name", "email", "createdAt", "lastActiveAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Gebruikersprofielen in de database"
+    },
+    "/users/{userId}/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Persoonlijke categorieën van de gebruiker"
+    },
+    "/users/{userId}/beers/{beerId}": {
+      "schema": { "$ref": "#/entities/Beer" },
+      "description": "Persoonlijke bieren van de gebruiker"
+    },
+    "/users/{userId}/tastings/{tastingId}": {
+      "schema": { "$ref": "#/entities/Tasting" },
+      "description": "Proefsessies en rankings van de gebruiker met locatie"
+    },
+    "/users/{userId}/glasses/{glassId}": {
+      "schema": { "$ref": "#/entities/BeerGlass" },
+      "description": "Collectie bierglazen met foto en aantal van de gebruiker"
+    },
+    "/users/{userId}/pubDeals/{dealId}": {
+      "schema": { "$ref": "#/entities/PubGlassDeal" },
+      "description": "Landelijke kroegen en glazen-acties met verplichte bronvermelding"
+    }
+  }
+}

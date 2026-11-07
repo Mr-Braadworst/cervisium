@@ -1,0 +1,40 @@
+// Prisma Schema voor BierLog (PostgreSQL / Supabase / Neon)
+// Gebruik `npx prisma db push` of `npx prisma migrate deploy` om de tabellen aan te maken.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @db.VarChar(128)
+  email        String?      @unique @db.VarChar(180)
+  name         String       @db.VarChar(120)
+  googleName   String?      @map("google_name") @db.VarChar(120)
+  role         String       @default("user") @db.VarChar(20)
+  passwordHash String?      @map("password_hash")
+  avatarUrl    String?      @map("avatar_url")
+  settings     Json?        @default("{}")
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastActiveAt DateTime?    @default(now()) @map("last_active_at") @db.Timestamptz(6)
+  records      UserRecord[]
+
+  @@map("users")
+}
+
+model UserRecord {
+  id             String   @db.VarChar(128)
+  userId         String   @map("user_id") @db.VarChar(128)
+  collectionType String   @map("collection_type") @db.VarChar(32)
+  payload        Json
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, collectionType, id])
+  @@index([userId, collectionType], name: "idx_user_records_user_type")
+  @@map("user_records")
+}
