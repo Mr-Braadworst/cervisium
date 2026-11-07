@@ -34,21 +34,30 @@
 
 Alles — het bouwen van de website, de Express-server, het genereren van geheime sleutels én **de volledige PostgreSQL-database** — draait **100% binnenin 1 enkele Docker-container**.
 
-### Optie 1: 1 enkel `docker compose` commando met je GitHub-link erin (op een lege server, zonder `git clone`!)
-Plak dit commando in je terminal (vervang `<JOUW_NAAM>/<JOUW_REPO>` door jouw GitHub-repository):
+### Optie 1A: Op Linux / macOS / VPS (1 commando, zonder `git clone`):
 ```bash
-GITHUB_REPO=https://github.com/<JOUW_NAAM>/<JOUW_REPO>.git docker compose -f <(curl -fsSL https://raw.githubusercontent.com/<JOUW_NAAM>/<JOUW_REPO>/main/docker-compose.yml) up -d --build
+curl -fsSL https://raw.githubusercontent.com/Mr-Braadworst/cervisium/main/docker-compose.yml -o docker-compose.yml && GITHUB_REPO=https://github.com/Mr-Braadworst/cervisium.git docker compose up -d --build
 ```
 
-### Optie 2: Losse `docker-compose.yml` met je GitHub-link erin (bijv. voor Portainer, Synology NAS of VPS)
-Je kunt ook alleen dit kleine `docker-compose.yml` bestandje op je server of in Portainer zetten en dan `docker compose up -d --build` uitvoeren:
+### Optie 1B: Op Windows PowerShell (1 commando, zonder `git clone`):
+```powershell
+curl.exe -fsSL https://raw.githubusercontent.com/Mr-Braadworst/cervisium/main/docker-compose.yml -o docker-compose.yml; $env:GITHUB_REPO="https://github.com/Mr-Braadworst/cervisium.git"; docker compose up -d --build
+```
+
+### Optie 1C: Universeel met `git clone` (werkt overal):
+```bash
+git clone https://github.com/Mr-Braadworst/cervisium.git && cd cervisium && docker compose up -d --build
+```
+
+### Optie 2: Losse `docker-compose.yml` (bijv. voor Portainer, Synology NAS of VPS)
+Plak dit in je `docker-compose.yml` (of in Portainer Stacks) en voer `docker compose up -d --build` uit:
 ```yaml
 services:
   bierlog:
     build:
-      context: https://github.com/<JOUW_NAAM>/<JOUW_REPO>.git
+      context: https://github.com/Mr-Braadworst/cervisium.git
       dockerfile: Dockerfile
-    container_name: bierlog
+    container_name: cervisium
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -59,7 +68,7 @@ volumes:
   bierlog_data:
 ```
 
-- De website + ingebouwde PostgreSQL-database draaien direct in **1 container (`bierlog`)** op **[http://localhost:3000](http://localhost:3000)**.
+- De website + ingebouwde PostgreSQL-database draaien direct in **1 container (`cervisium`)** op **[http://localhost:3000](http://localhost:3000)**.
 - Het Docker-volume `bierlog_data` (`/data` in de container) bewaart automatisch de interne PostgreSQL-database én de automatisch aangemaakte sessie-sleutel.
 
 ---
@@ -130,7 +139,7 @@ git commit -m "Initial production release of BierLog"
 
 # 4. Koppel je nieuwe GitHub-repository en push naar main
 git branch -M main
-git remote add origin https://github.com/<JOUW_GEBRUIKERSNAAM>/<JOUW_REPO_NAAM>.git
+git remote add origin https://github.com/Mr-Braadworst/cervisium.git
 git push -u origin main
 ```
 

@@ -1,17 +1,14 @@
 services:
   # ----------------------------------------------------------------------------
-  # BierLog All-in-One Container (Website + Express API + Eigen PostgreSQL DB)
-  # Alles draait volledig binnenin deze ene container!
-  #
-  # Tip: Vervang hieronder bij `context:` de waarde door jouw GitHub-link
-  # (bijv. context: https://github.com/JOUW_NAAM/JOUW_REPO.git) of geef
-  # GITHUB_REPO mee in je commando om direct vanuit GitHub te bouwen!
+  # BierLog / Cervisium All-in-One Container
+  # (Website + Express API + Eigen PostgreSQL Database in 1 container)
+  # Bouwt rechtstreeks vanuit https://github.com/Mr-Braadworst/cervisium.git
   # ----------------------------------------------------------------------------
   bierlog:
     build:
-      context: ${GITHUB_REPO:-.}
+      context: ${GITHUB_REPO:-https://github.com/Mr-Braadworst/cervisium.git}
       dockerfile: Dockerfile
-    container_name: bierlog
+    container_name: cervisium
     restart: unless-stopped
     ports:
       - "${PORT:-3000}:3000"
