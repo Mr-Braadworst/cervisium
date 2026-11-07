@@ -56,6 +56,7 @@ export function setActiveUser(user: UserAccount | null): void {
     name: sanitizeString(user.name, 100, 'Bierliefhebber'),
     googleName: user.googleName ? sanitizeString(user.googleName, 100) : undefined,
     email: sanitizeString(user.email, 180, 'gebruiker@bierlog.nl'),
+    role: user.role === 'admin' ? 'admin' : user.role === 'user' ? 'user' : undefined,
     avatarUrl: sanitizeImageUrl(user.avatarUrl),
     createdAt: sanitizeString(user.createdAt, 60, new Date().toISOString()),
   };
@@ -96,6 +97,7 @@ export function getAllUsers(): UserAccount[] {
         name: sanitizeString(u.name, 100, 'Bierliefhebber'),
         googleName: u.googleName ? sanitizeString(u.googleName, 100) : undefined,
         email: sanitizeString(u.email, 180, 'gebruiker@bierlog.nl'),
+        role: u.role === 'admin' ? 'admin' : u.role === 'user' ? 'user' : undefined,
         avatarUrl: sanitizeImageUrl(u.avatarUrl),
         createdAt: sanitizeString(u.createdAt, 60, new Date().toISOString()),
       }));

@@ -130,7 +130,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bierlog_complete_admin_export_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `cervisium_complete_admin_export_${new Date().toISOString().split('T')[0]}.json`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -242,7 +242,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-extrabold text-zinc-100 tracking-tight flex items-center gap-2.5 pt-1">
-              BierLog Beheer &amp; Admin Panel
+              Cervisium Beheer &amp; Admin Panel
             </h1>
             <p className="text-xs sm:text-sm text-zinc-400 max-w-2xl">
               Realtime inzicht in je opslag (MB &amp; GB gebruikt en vrij), app-gebruik, geregistreerde accounts en de mogelijkheid om de website exact te bekijken zoals een specifieke gebruiker hem ziet.
@@ -432,7 +432,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         </div>
       ) : stats ? (
         <>
-          {/* 1. STORAGE & GB QUOTA CARD */}
+          {/* 1. SERVER OPSLAG, RAM-GEBRUIK & APP CAPACITEIT CARD */}
           <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-6 shadow-xl space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
               <div className="flex items-center gap-3">
@@ -441,10 +441,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 </div>
                 <div>
                   <h2 className="text-lg font-extrabold text-zinc-100">
-                    Opslag &amp; Capaciteit
+                    Server Opslag, RAM-geheugen &amp; App Data
                   </h2>
                   <p className="text-xs text-zinc-400">
-                    Exacte berekening van alle documenten, velden, indexen en geüploade foto&apos;s tegenover je 1,00 GB (1.024 MB) opslaglimiet
+                    Realtime meting van de schijfopslag van je server, het actuele RAM-gebruik en de ruimte van alle bieren &amp; foto&apos;s
                   </p>
                 </div>
               </div>
@@ -494,12 +494,120 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               </div>
             </div>
 
-            {/* 3 Storage Hero Cards: Gebruikt / Nog Vrij / Totale Limiet */}
+            {/* SERVER OPSLAG (DISK) & SERVER RAM-GEBRUIK */}
+            {stats.serverMetrics && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Server Schijfopslag */}
+                {(() => {
+                  const diskTotal = stats.serverMetrics.diskTotalBytes || stats.quotaBytes;
+                  const diskUsed = stats.serverMetrics.diskUsedBytes || stats.totalBytesUsed;
+                  const diskFree = stats.serverMetrics.diskFreeBytes || stats.totalBytesRemaining;
+                  const diskPct = diskTotal > 0 ? Math.min(100, (diskUsed / diskTotal) * 100) : 0;
+
+                  return (
+                    <div className="p-5 rounded-2xl bg-zinc-950/90 border border-amber-500/30 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                          <HardDrive className="w-4 h-4" />
+                          <span>Server Schijfopslag (Disk)</span>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-amber-300">
+                          {diskPct.toLocaleString('nl-NL', {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          })}
+                          % gebruikt
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="text-2xl font-black text-zinc-100 font-mono">
+                          {formatByMode(diskUsed, false)}
+                        </div>
+                        <div className="text-xs text-zinc-400 font-mono">
+                          van {formatByMode(diskTotal, true)} totaal
+                        </div>
+                      </div>
+
+                      <div className="w-full h-3 rounded-full bg-zinc-900 border border-zinc-800 overflow-hidden p-0.5">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
+                          style={{ width: `${Math.max(diskPct, 2)}%` }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
+                        <span>
+                          Nog vrij: <strong className="text-emerald-300">{formatByMode(diskFree, true)}</strong>
+                        </span>
+                        <span>
+                          In MB: <strong className="text-zinc-300">{formatStorageMB(diskFree, 0)} vrij</strong>
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Server RAM-gebruik */}
+                {(() => {
+                  const ramTotal = stats.serverMetrics.ramTotalBytes || 1;
+                  const ramUsed = stats.serverMetrics.ramUsedBytes || 0;
+                  const ramFree = stats.serverMetrics.ramFreeBytes || 0;
+                  const appRss = stats.serverMetrics.appRamRssBytes || 0;
+                  const ramPct = Math.min(100, (ramUsed / ramTotal) * 100);
+
+                  return (
+                    <div className="p-5 rounded-2xl bg-zinc-950/90 border border-emerald-500/30 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                          <Activity className="w-4 h-4" />
+                          <span>Server RAM-Geheugen</span>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-emerald-300">
+                          {ramPct.toLocaleString('nl-NL', {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          })}
+                          % in gebruik
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="text-2xl font-black text-zinc-100 font-mono">
+                          {formatByMode(ramUsed, false)}
+                        </div>
+                        <div className="text-xs text-zinc-400 font-mono">
+                          van {formatByMode(ramTotal, true)} RAM
+                        </div>
+                      </div>
+
+                      <div className="w-full h-3 rounded-full bg-zinc-900 border border-zinc-800 overflow-hidden p-0.5">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-amber-400 transition-all duration-500"
+                          style={{ width: `${Math.max(ramPct, 2)}%` }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
+                        <span>
+                          Vrij RAM: <strong className="text-emerald-300">{formatByMode(ramFree, false)}</strong>
+                        </span>
+                        <span>
+                          Cervisium App RAM: <strong className="text-amber-300">{formatStorageMB(appRss, 1)}</strong>
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* 3 App Data Cards: App Data Gebruikt / Foto's / Nog Ruimte Voor Bieren */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Gebruikt */}
-              <div className="p-5 rounded-2xl bg-zinc-950/90 border border-amber-500/30 space-y-1.5">
+              {/* App Data Gebruikt */}
+              <div className="p-5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-bold text-amber-400 uppercase tracking-wider">
-                  <span>In Gebruik (Database)</span>
+                  <span>Cervisium App Data</span>
                   <Database className="w-4 h-4" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black text-zinc-100 font-mono">
@@ -516,9 +624,9 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               </div>
 
               {/* Resterend / Nog Over */}
-              <div className="p-5 rounded-2xl bg-zinc-950/90 border border-emerald-500/30 space-y-1.5">
+              <div className="p-5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                  <span>Nog Vrij / Over</span>
+                  <span>Vrije Opslagruimte</span>
                   <CheckCircle2 className="w-4 h-4" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black text-emerald-300 font-mono">
@@ -526,63 +634,27 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 </div>
                 <div className="text-xs text-zinc-400 flex items-center justify-between pt-1">
                   <span>
-                    Vrij in MB: <strong className="text-zinc-200">{formatStorageMB(stats.totalBytesRemaining, 1)}</strong>
+                    Vrij in MB: <strong className="text-zinc-200">{formatStorageMB(stats.totalBytesRemaining, 0)}</strong>
                   </span>
                   <span className="text-[11px] text-emerald-400/90 font-semibold">
-                    {(100 - usedPercent).toLocaleString('nl-NL', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}% vrij
+                    {formatStorageGB(stats.totalBytesRemaining, 2)} vrij
                   </span>
                 </div>
               </div>
 
-              {/* Totale Capaciteit & Schatting */}
+              {/* Schatting Bieren */}
               <div className="p-5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                  <span>Totale Database Limiet</span>
+                  <span>Capaciteit voor Bieren</span>
                   <Sparkles className="w-4 h-4 text-amber-400" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black text-zinc-100 font-mono">
-                  {unitMode === 'mb' ? '1.024,0 MB' : '1,00 GB'}
+                  {estimatedRemainingBeersWithPhoto.toLocaleString('nl-NL')}
                 </div>
                 <div className="text-xs text-zinc-400 flex items-center justify-between pt-1">
-                  <span>1,00 GB = 1.024 MB</span>
-                  <span>
-                    Nog ca.{' '}
-                    <strong className="text-amber-300">
-                      {estimatedRemainingBeersWithPhoto.toLocaleString('nl-NL')}
-                    </strong>{' '}
-                    bieren
-                  </span>
+                  <span>Bieren incl. foto (~120 KB/bier)</span>
+                  <span className="text-amber-300 font-semibold">Ruim voldoende</span>
                 </div>
-              </div>
-            </div>
-
-            {/* Visuele Voortgangsbalk */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs flex-wrap gap-2">
-                <span className="font-bold text-zinc-300">
-                  Opslagmeter:{' '}
-                  {usedPercent < 0.01 && stats.totalBytesUsed > 0
-                    ? '< 0,01%'
-                    : `${usedPercent.toLocaleString('nl-NL', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}%`}{' '}
-                  gebruikt van 1,00 GB
-                </span>
-                <span className="text-zinc-400 font-mono">
-                  {unitMode === 'gb'
-                    ? `${formatStorageGB(stats.totalBytesUsed, 3)} / 1,00 GB`
-                    : `${formatStorageMB(stats.totalBytesUsed, 2)} / 1.024,00 MB (1,00 GB)`}
-                </span>
-              </div>
-              <div className="w-full h-4 rounded-full bg-zinc-950 border border-zinc-800 overflow-hidden p-0.5">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-400 transition-all duration-500"
-                  style={{ width: `${Math.max(usedPercent, stats.totalBytesUsed > 0 ? 1.5 : 0)}%` }}
-                />
               </div>
             </div>
 

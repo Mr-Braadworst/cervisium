@@ -17,8 +17,8 @@ export default defineConfig(() => {
         },
         manifest: {
           id: '/',
-          name: 'BierLog - Persoonlijke Bier Tracker',
-          short_name: 'BierLog',
+          name: 'Cervisium - Persoonlijke Bier Tracker',
+          short_name: 'Cervisium',
           description: 'Jouw persoonlijke bier collectie en beoordelingsapp.',
           theme_color: '#f59e0b',
           background_color: '#09090b',

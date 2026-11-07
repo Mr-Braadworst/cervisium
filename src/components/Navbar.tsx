@@ -73,7 +73,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-lg sm:text-xl tracking-tight text-zinc-100 group-hover:text-amber-400 transition-colors">
-                  BierLog
+                  Cervisium
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400 hidden sm:block">

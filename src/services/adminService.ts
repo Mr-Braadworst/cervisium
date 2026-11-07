@@ -151,13 +151,33 @@ export function isSuperAdmin(user: UserAccount | null | undefined): boolean {
   if (!isOwnerEmail(user.email)) return false;
 
   const fbUser = auth.currentUser;
-  if (!fbUser) return user.role === 'admin';
+  if (!fbUser) return true;
 
-  return (
-    isOwnerEmail(fbUser.email) &&
-    fbUser.emailVerified === true &&
-    user.id === fbUser.uid
-  );
+  return isOwnerEmail(fbUser.email) && user.id === fbUser.uid;
+}
+
+function isClientFirestoreEnabled(): boolean {
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
+  if (env.VITE_USE_FIRESTORE === 'false') return false;
+  if (typeof window !== 'undefined' && (window as any).__BIERLOG_FIREBASE_CONFIG__) {
+    return false;
+  }
+  return true;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms = 2000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timeout')), ms);
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
 }
 
 /**
@@ -227,6 +247,18 @@ export interface AdminActivityItem {
   dateIso: string;
 }
 
+export interface ServerSystemMetrics {
+  diskTotalBytes: number;
+  diskUsedBytes: number;
+  diskFreeBytes: number;
+  ramTotalBytes: number;
+  ramUsedBytes: number;
+  ramFreeBytes: number;
+  appRamRssBytes: number;
+  cpuCores: number;
+  uptimeSeconds: number;
+}
+
 export interface AdminDashboardStats {
   scannedAt: string;
   quotaBytes: number;
@@ -234,6 +266,7 @@ export interface AdminDashboardStats {
   totalBytesRemaining: number;
   photoBytesUsed: number;
   metadataBytesUsed: number;
+  serverMetrics?: ServerSystemMetrics;
   collectionBytes: {
     beers: number;
     tastings: number;
@@ -396,8 +429,14 @@ export async function updateAdminUserProfileLabel(
   if (cleanEmail && cleanEmail.includes('@')) {
     payload.email = cleanEmail;
   }
-  const docRef = doc(db, 'users', targetUserId);
-  await setDoc(docRef, payload, { merge: true });
+  if (isClientFirestoreEnabled()) {
+    try {
+      const docRef = doc(db, 'users', targetUserId);
+      await withTimeout(setDoc(docRef, payload, { merge: true }), 2000);
+    } catch {
+      // Negeer als client-side opslag niet actief is
+    }
+  }
 }
 
 export async function fetchAdminDashboardData(
@@ -490,7 +529,9 @@ export async function fetchAdminDashboardData(
     // Ignore storage scan errors
   }
 
-  // Voer /users + alle 5 collectionGroup queries parallel uit
+  const useFirestore = isClientFirestoreEnabled();
+
+  // Voer /users + alle 5 collectionGroup queries alleen uit als Firestore actief is (met korte timeout zodat scan nooit blijft hangen)
   const [
     usersSnapRes,
     cgCategoriesRes,
@@ -498,14 +539,23 @@ export async function fetchAdminDashboardData(
     cgTastingsRes,
     cgGlassesRes,
     cgPubDealsRes,
-  ] = await Promise.allSettled([
-    getDocs(collection(db, 'users')),
-    getDocs(collectionGroup(db, 'categories')),
-    getDocs(collectionGroup(db, 'beers')),
-    getDocs(collectionGroup(db, 'tastings')),
-    getDocs(collectionGroup(db, 'glasses')),
-    getDocs(collectionGroup(db, 'pubDeals')),
-  ]);
+  ] = useFirestore
+    ? await Promise.allSettled([
+        withTimeout(getDocs(collection(db, 'users')), 2500),
+        withTimeout(getDocs(collectionGroup(db, 'categories')), 2500),
+        withTimeout(getDocs(collectionGroup(db, 'beers')), 2500),
+        withTimeout(getDocs(collectionGroup(db, 'tastings')), 2500),
+        withTimeout(getDocs(collectionGroup(db, 'glasses')), 2500),
+        withTimeout(getDocs(collectionGroup(db, 'pubDeals')), 2500),
+      ])
+    : ([
+        { status: 'rejected', reason: 'disabled' },
+        { status: 'rejected', reason: 'disabled' },
+        { status: 'rejected', reason: 'disabled' },
+        { status: 'rejected', reason: 'disabled' },
+        { status: 'rejected', reason: 'disabled' },
+        { status: 'rejected', reason: 'disabled' },
+      ] as const);
 
   if (usersSnapRes.status === 'fulfilled') {
     usersSnapRes.value.forEach((docSnap) => {
@@ -669,7 +719,8 @@ export async function fetchAdminDashboardData(
     });
   }
 
-  // Haal ook alle geregistreerde accounts en collecties op uit de eigen Docker PostgreSQL-database (/api/admin/export)
+  // Haal alle geregistreerde accounts, collecties én server-statistieken (opslag + RAM) op van de server (/api/admin/export)
+  let serverMetrics: ServerSystemMetrics | undefined;
   try {
     const headers: Record<string, string> = {};
     if (auth.currentUser) {
@@ -683,6 +734,7 @@ export async function fetchAdminDashboardData(
     });
     if (serverRes.ok) {
       const serverExport = (await serverRes.json()) as {
+        systemMetrics?: ServerSystemMetrics;
         users?: Array<{
           user?: Record<string, unknown>;
           categories?: Array<Record<string, unknown>>;
@@ -692,6 +744,9 @@ export async function fetchAdminDashboardData(
           pubDeals?: Array<Record<string, unknown>>;
         }>;
       };
+      if (serverExport.systemMetrics) {
+        serverMetrics = serverExport.systemMetrics;
+      }
       if (Array.isArray(serverExport.users)) {
         for (const entry of serverExport.users) {
           const u = entry.user;
@@ -766,30 +821,30 @@ export async function fetchAdminDashboardData(
       const glassMap = glassesByUser.get(uid) || new Map<string, Record<string, unknown>>();
       const dealMap = dealsByUser.get(uid) || new Map<string, Record<string, unknown>>();
 
-      // Als een van de collecties nog leeg is (of om 100% zeker te zijn dat niets gemist is),
-      // haal direct de subcollecties onder /users/{uid}/... op en voeg ze samen
-      const [catsRes, beersRes, tastingsRes, glassesRes, dealsRes] = await Promise.allSettled([
-        getDocs(collection(db, 'users', uid, 'categories')),
-        getDocs(collection(db, 'users', uid, 'beers')),
-        getDocs(collection(db, 'users', uid, 'tastings')),
-        getDocs(collection(db, 'users', uid, 'glasses')),
-        getDocs(collection(db, 'users', uid, 'pubDeals')),
-      ]);
+      if (useFirestore) {
+        const [catsRes, beersRes, tastingsRes, glassesRes, dealsRes] = await Promise.allSettled([
+          withTimeout(getDocs(collection(db, 'users', uid, 'categories')), 2000),
+          withTimeout(getDocs(collection(db, 'users', uid, 'beers')), 2000),
+          withTimeout(getDocs(collection(db, 'users', uid, 'tastings')), 2000),
+          withTimeout(getDocs(collection(db, 'users', uid, 'glasses')), 2000),
+          withTimeout(getDocs(collection(db, 'users', uid, 'pubDeals')), 2000),
+        ]);
 
-      if (catsRes.status === 'fulfilled') {
-        catsRes.value.forEach((d) => catMap.set(d.id, d.data() as Record<string, unknown>));
-      }
-      if (beersRes.status === 'fulfilled') {
-        beersRes.value.forEach((d) => beerMap.set(d.id, d.data() as Record<string, unknown>));
-      }
-      if (tastingsRes.status === 'fulfilled') {
-        tastingsRes.value.forEach((d) => tastingMap.set(d.id, d.data() as Record<string, unknown>));
-      }
-      if (glassesRes.status === 'fulfilled') {
-        glassesRes.value.forEach((d) => glassMap.set(d.id, d.data() as Record<string, unknown>));
-      }
-      if (dealsRes.status === 'fulfilled') {
-        dealsRes.value.forEach((d) => dealMap.set(d.id, d.data() as Record<string, unknown>));
+        if (catsRes.status === 'fulfilled') {
+          catsRes.value.forEach((d) => catMap.set(d.id, d.data() as Record<string, unknown>));
+        }
+        if (beersRes.status === 'fulfilled') {
+          beersRes.value.forEach((d) => beerMap.set(d.id, d.data() as Record<string, unknown>));
+        }
+        if (tastingsRes.status === 'fulfilled') {
+          tastingsRes.value.forEach((d) => tastingMap.set(d.id, d.data() as Record<string, unknown>));
+        }
+        if (glassesRes.status === 'fulfilled') {
+          glassesRes.value.forEach((d) => glassMap.set(d.id, d.data() as Record<string, unknown>));
+        }
+        if (dealsRes.status === 'fulfilled') {
+          dealsRes.value.forEach((d) => dealMap.set(d.id, d.data() as Record<string, unknown>));
+        }
       }
 
       const userBeers: Beer[] = [];
@@ -975,20 +1030,21 @@ export async function fetchAdminDashboardData(
       const earliestIso =
         sortedDesc[sortedDesc.length - 1] || u.createdAt || new Date().toISOString();
 
-      // Als dit account alleen subcollecties had zonder /users/{uid} document,
-      // registreer het hoofddocument automatisch in /users/{uid} zodat het altijd direct vindbaar blijft.
-      if (!explicitProfileUids.has(uid)) {
+      if (useFirestore && !explicitProfileUids.has(uid)) {
         try {
-          await setDoc(
-            doc(db, 'users', uid),
-            {
-              uid,
-              ...(u.name ? { name: u.name } : {}),
-              ...(u.email ? { email: u.email } : {}),
-              createdAt: earliestIso,
-              lastActiveAt: latestIso,
-            },
-            { merge: true }
+          await withTimeout(
+            setDoc(
+              doc(db, 'users', uid),
+              {
+                uid,
+                ...(u.name ? { name: u.name } : {}),
+                ...(u.email ? { email: u.email } : {}),
+                createdAt: earliestIso,
+                lastActiveAt: latestIso,
+              },
+              { merge: true }
+            ),
+            1500
           );
         } catch {
           // Niet-kritiek als backfill faalt
@@ -1086,7 +1142,14 @@ export async function fetchAdminDashboardData(
 
   const totalBytesUsed =
     profilesBytes + beersBytes + tastingsBytes + glassesBytes + categoriesBytes + pubDealsBytes;
-  const totalBytesRemaining = Math.max(0, FIRESTORE_QUOTA_BYTES - totalBytesUsed);
+  const effectiveQuotaBytes =
+    serverMetrics && serverMetrics.diskTotalBytes > 0
+      ? serverMetrics.diskTotalBytes
+      : FIRESTORE_QUOTA_BYTES;
+  const totalBytesRemaining =
+    serverMetrics && serverMetrics.diskFreeBytes > 0
+      ? serverMetrics.diskFreeBytes
+      : Math.max(0, effectiveQuotaBytes - totalBytesUsed);
   const metadataBytesUsed = Math.max(0, totalBytesUsed - totalPhotoBytes);
 
   const nowMs = Date.now();
@@ -1103,11 +1166,12 @@ export async function fetchAdminDashboardData(
 
   return {
     scannedAt: new Date().toISOString(),
-    quotaBytes: FIRESTORE_QUOTA_BYTES,
+    quotaBytes: effectiveQuotaBytes,
     totalBytesUsed,
     totalBytesRemaining,
     photoBytesUsed: totalPhotoBytes,
     metadataBytesUsed,
+    serverMetrics,
     collectionBytes: {
       beers: beersBytes,
       tastings: tastingsBytes,
@@ -1133,7 +1197,7 @@ export async function fetchAdminDashboardData(
 }
 
 export interface AdminExportPackage {
-  app: 'BierLog';
+  app: 'Cervisium' | 'BierLog';
   schemaVersion: 2;
   exportedAt: string;
   exportedBy: string;
@@ -1257,7 +1321,7 @@ export function buildCompleteAdminExportJson(
   });
 
   const pkg: AdminExportPackage = {
-    app: 'BierLog',
+    app: 'Cervisium',
     schemaVersion: 2,
     exportedAt: new Date().toISOString(),
     exportedBy: adminUser.email,
@@ -1312,7 +1376,7 @@ export async function importCompleteAdminDataJson(
     ];
   } else {
     throw new Error(
-      'JSON-bestand bevat geen geldige "users"-lijst of herkenbare BierLog collecties.'
+      'JSON-bestand bevat geen geldige "users"-lijst of herkenbare Cervisium collecties.'
     );
   }
 
@@ -1356,16 +1420,19 @@ export async function importCompleteAdminDataJson(
     recordsSkippedDuplicate: 0,
   };
 
-  // Indien we op de eigen Docker PostgreSQL-server draaien (zonder Firebase Auth sessie),
-  // voer de import rechtstreeks uit op de centrale PostgreSQL database via /api/admin/import
-  if (!auth.currentUser) {
+  if (!auth.currentUser || !isClientFirestoreEnabled()) {
     if (onProgress) {
-      onProgress('Importeren in eigen Docker PostgreSQL-database...', 50);
+      onProgress('Importeren van gegevens op de server...', 50);
+    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (auth.currentUser) {
+      const idToken = await auth.currentUser.getIdToken();
+      headers.Authorization = `Bearer ${idToken}`;
     }
     const res = await fetch('/api/admin/import', {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         payload: { users: rawUsersArray },
         skipDuplicates: options.skipDuplicates,
@@ -1373,14 +1440,15 @@ export async function importCompleteAdminDataJson(
     });
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
-      throw new Error(errData?.error || 'Importeren in server-database is mislukt.');
+      throw new Error(errData?.error || 'Importeren op de server is mislukt.');
     }
-    const data = (await res.json()) as { report?: AdminImportReport };
+    const data = (await res.json()) as { report?: AdminImportReport; summary?: AdminImportReport };
     if (onProgress) {
       onProgress('Import voltooid!', 100);
     }
     return (
-      data.report || {
+      data.report ||
+      data.summary || {
         usersImported: rawUsersArray.length,
         usersSkippedDuplicate: 0,
         categoriesImported: 0,

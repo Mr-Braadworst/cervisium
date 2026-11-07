@@ -51,7 +51,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bierlog_${activeUser.name.toLowerCase().replace(/[^a-z0-9_-]/gi, '_')}_backup.json`;
+    a.download = `cervisium_${activeUser.name.toLowerCase().replace(/[^a-z0-9_-]/gi, '_')}_backup.json`;
     a.click();
     URL.revokeObjectURL(url);
   };

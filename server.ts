@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -381,6 +382,38 @@ async function startServer() {
   // ==========================================================================
   // 4. SERVER-SIDE VERGRENDELDE ADMIN ENDPOINTS (requireAdmin middleware)
   // ==========================================================================
+  function getServerSystemMetrics() {
+    const ramTotalBytes = os.totalmem();
+    const ramFreeBytes = os.freemem();
+    const ramUsedBytes = Math.max(0, ramTotalBytes - ramFreeBytes);
+    const appRamRssBytes = process.memoryUsage().rss;
+
+    let diskTotalBytes = 0;
+    let diskFreeBytes = 0;
+    let diskUsedBytes = 0;
+    try {
+      const targetPath = fs.existsSync('/data') ? '/data' : '/';
+      const stat = fs.statfsSync(targetPath);
+      diskTotalBytes = Number(stat.blocks) * Number(stat.bsize);
+      diskFreeBytes = Number(stat.bavail) * Number(stat.bsize);
+      diskUsedBytes = Math.max(0, diskTotalBytes - diskFreeBytes);
+    } catch {
+      // Fallback indien statfsSync niet beschikbaar is
+    }
+
+    return {
+      diskTotalBytes,
+      diskUsedBytes,
+      diskFreeBytes,
+      ramTotalBytes,
+      ramUsedBytes,
+      ramFreeBytes,
+      appRamRssBytes,
+      cpuCores: os.cpus()?.length || 1,
+      uptimeSeconds: Math.floor(os.uptime()),
+    };
+  }
+
   app.get('/api/admin/verify', requireAdmin, (req, res) => {
     res.json({
       authorized: true,
@@ -389,17 +422,26 @@ async function startServer() {
         email: req.authUser!.email,
         role: req.authUser!.role,
       },
-      databaseEngine: centralDb.isPostgresConfigured() ? 'postgresql' : 'firestore+server-store',
+      systemMetrics: getServerSystemMetrics(),
+    });
+  });
+
+  app.get('/api/admin/metrics', requireAdmin, (_req, res) => {
+    res.json({
+      systemMetrics: getServerSystemMetrics(),
     });
   });
 
   app.get('/api/admin/export', requireAdmin, async (req, res) => {
     try {
       const payload = await centralDb.exportAllData(req.authUser!.email);
-      res.json(payload);
+      res.json({
+        ...payload,
+        systemMetrics: getServerSystemMetrics(),
+      });
     } catch (err) {
       res.status(500).json({
-        error: err instanceof Error ? err.message : 'Kon database niet exporteren.',
+        error: err instanceof Error ? err.message : 'Kon gegevens niet exporteren.',
       });
     }
   });

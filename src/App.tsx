@@ -1054,11 +1054,11 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span className="font-semibold text-zinc-400">BierLog</span>
+            <span className="font-semibold text-zinc-400">Cervisium</span>
             <span>&bull; Jouw persoonlijke craft bier &amp; proefnotities app</span>
           </div>
           <div className="flex items-center gap-4 text-[11px] text-zinc-500">
-            <span>Ingelogd via Google: {activeUser.email}</span>
+            <span>Ingelogd: {activeUser.email}</span>
             <button
               onClick={() => setActiveTab('settings')}
               className="text-amber-400 hover:underline font-medium"
