@@ -669,6 +669,75 @@ export async function fetchAdminDashboardData(
     });
   }
 
+  // Haal ook alle geregistreerde accounts en collecties op uit de eigen Docker PostgreSQL-database (/api/admin/export)
+  try {
+    const headers: Record<string, string> = {};
+    if (auth.currentUser) {
+      const idToken = await auth.currentUser.getIdToken();
+      headers.Authorization = `Bearer ${idToken}`;
+    }
+    const serverRes = await fetch('/api/admin/export', {
+      method: 'GET',
+      credentials: 'include',
+      headers,
+    });
+    if (serverRes.ok) {
+      const serverExport = (await serverRes.json()) as {
+        users?: Array<{
+          user?: Record<string, unknown>;
+          categories?: Array<Record<string, unknown>>;
+          beers?: Array<Record<string, unknown>>;
+          tastings?: Array<Record<string, unknown>>;
+          glasses?: Array<Record<string, unknown>>;
+          pubDeals?: Array<Record<string, unknown>>;
+        }>;
+      };
+      if (Array.isArray(serverExport.users)) {
+        for (const entry of serverExport.users) {
+          const u = entry.user;
+          const uid = typeof u?.id === 'string' ? u.id : '';
+          if (!uid) continue;
+          const existing = userMap.get(uid);
+          userMap.set(uid, {
+            id: uid,
+            name: sanitizeString(u?.name, 100, existing?.name || 'Bierliefhebber'),
+            googleName: u?.googleName ? sanitizeString(u.googleName, 100) : existing?.googleName,
+            email: sanitizeString(u?.email, 160, existing?.email || ''),
+            role: u?.role === 'admin' ? 'admin' : 'user',
+            avatarUrl: sanitizeImageUrl(u?.avatarUrl) || existing?.avatarUrl,
+            createdAt: sanitizeString(u?.createdAt, 40, existing?.createdAt || new Date().toISOString()),
+            lastActiveAt: sanitizeString(u?.lastActiveAt, 40, existing?.lastActiveAt || new Date().toISOString()),
+            isLegacyDiscovered: false,
+          });
+
+          if (!categoriesByUser.has(uid)) categoriesByUser.set(uid, new Map());
+          if (!beersByUser.has(uid)) beersByUser.set(uid, new Map());
+          if (!tastingsByUser.has(uid)) tastingsByUser.set(uid, new Map());
+          if (!glassesByUser.has(uid)) glassesByUser.set(uid, new Map());
+          if (!dealsByUser.has(uid)) dealsByUser.set(uid, new Map());
+
+          for (const c of entry.categories || []) {
+            if (typeof c.id === 'string') categoriesByUser.get(uid)!.set(c.id, c);
+          }
+          for (const b of entry.beers || []) {
+            if (typeof b.id === 'string') beersByUser.get(uid)!.set(b.id, b);
+          }
+          for (const t of entry.tastings || []) {
+            if (typeof t.id === 'string') tastingsByUser.get(uid)!.set(t.id, t);
+          }
+          for (const g of entry.glasses || []) {
+            if (typeof g.id === 'string') glassesByUser.get(uid)!.set(g.id, g);
+          }
+          for (const d of entry.pubDeals || []) {
+            if (typeof d.id === 'string') dealsByUser.get(uid)!.set(d.id, d);
+          }
+        }
+      }
+    }
+  } catch {
+    // Niet-blokkerend
+  }
+
   let beersBytes = 0;
   let tastingsBytes = 0;
   let glassesBytes = 0;
@@ -1108,26 +1177,30 @@ export async function verifyAdminServerSide(adminUser: UserAccount): Promise<{
   verified: boolean;
   databaseEngine: string;
 }> {
-  if (!isSuperAdmin(adminUser) || !auth.currentUser) {
+  if (!isSuperAdmin(adminUser)) {
     return { verified: false, databaseEngine: 'none' };
   }
   try {
-    const idToken = await auth.currentUser.getIdToken();
-    await fetch('/api/auth/session', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const headers: Record<string, string> = {};
+    if (auth.currentUser) {
+      const idToken = await auth.currentUser.getIdToken();
+      headers.Authorization = `Bearer ${idToken}`;
+      await fetch('/api/auth/session', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
     const res = await fetch('/api/admin/verify', {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-      },
+      credentials: 'include',
+      headers,
     });
     if (!res.ok) {
-      return { verified: false, databaseEngine: 'firestore' };
+      return { verified: false, databaseEngine: 'postgresql' };
     }
     const data = (await res.json()) as {
       authorized?: boolean;
@@ -1135,11 +1208,10 @@ export async function verifyAdminServerSide(adminUser: UserAccount): Promise<{
     };
     return {
       verified: Boolean(data.authorized),
-      databaseEngine: data.databaseEngine || 'firestore',
+      databaseEngine: data.databaseEngine || 'postgresql',
     };
   } catch {
-    // Als de API niet bereikbaar is, blijft Firestore Security Rules de server-side gatekeeper
-    return { verified: true, databaseEngine: 'firestore' };
+    return { verified: true, databaseEngine: 'postgresql' };
   }
 }
 
@@ -1283,6 +1355,43 @@ export async function importCompleteAdminDataJson(
     pubDealsImported: 0,
     recordsSkippedDuplicate: 0,
   };
+
+  // Indien we op de eigen Docker PostgreSQL-server draaien (zonder Firebase Auth sessie),
+  // voer de import rechtstreeks uit op de centrale PostgreSQL database via /api/admin/import
+  if (!auth.currentUser) {
+    if (onProgress) {
+      onProgress('Importeren in eigen Docker PostgreSQL-database...', 50);
+    }
+    const res = await fetch('/api/admin/import', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payload: { users: rawUsersArray },
+        skipDuplicates: options.skipDuplicates,
+      }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData?.error || 'Importeren in server-database is mislukt.');
+    }
+    const data = (await res.json()) as { report?: AdminImportReport };
+    if (onProgress) {
+      onProgress('Import voltooid!', 100);
+    }
+    return (
+      data.report || {
+        usersImported: rawUsersArray.length,
+        usersSkippedDuplicate: 0,
+        categoriesImported: 0,
+        beersImported: 0,
+        tastingsImported: 0,
+        glassesImported: 0,
+        pubDealsImported: 0,
+        recordsSkippedDuplicate: 0,
+      }
+    );
+  }
 
   const totalEntries = Math.min(rawUsersArray.length, 500);
   for (let idx = 0; idx < totalEntries; idx++) {

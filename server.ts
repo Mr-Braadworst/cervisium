@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -12,6 +13,7 @@ import {
   verifyPassword,
   sanitizeServerString,
   sanitizeServerImageUrl,
+  isVerifiedAdminEmail,
 } from './server/security';
 import { centralDb } from './server/db';
 
@@ -96,7 +98,7 @@ async function startServer() {
         emailVerified: verifiedGoogleUser.emailVerified,
       });
 
-      const isSecure = process.env.NODE_ENV === 'production';
+      const isSecure = Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
       res.setHeader(
         'Set-Cookie',
         `bierlog_session=${encodeURIComponent(signedCookieToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}${isSecure ? '; Secure' : ''}`
@@ -118,6 +120,108 @@ async function startServer() {
       });
     } catch {
       res.status(500).json({ error: 'Kon Google-inlog niet verwerken op de server.' });
+    }
+  });
+
+  /**
+   * Directe Inlog / Registratie op de eigen Docker PostgreSQL-database (POST /api/auth/account).
+   * Werkt op elk lokaal IP-adres (zoals http://<ubuntu-ip>:3000) én elk domein zonder dat een
+   * externe Firebase/Google pop-up het domein hoeft te whitelisten.
+   */
+  app.post('/api/auth/account', async (req, res) => {
+    try {
+      const { email, password, name } = (req.body || {}) as {
+        email?: string;
+        password?: string;
+        name?: string;
+      };
+
+      const cleanEmail = sanitizeServerString(email, 180).toLowerCase();
+      if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        res.status(400).json({ error: 'Vul een geldig e-mailadres in.' });
+        return;
+      }
+
+      if (typeof password !== 'string' || password.length < 8 || password.length > 256) {
+        res.status(400).json({
+          error: 'Wachtwoord moet minimaal 8 tekens lang zijn.',
+        });
+        return;
+      }
+
+      const existingUser = await centralDb.getUserByEmail(cleanEmail);
+      let passwordHashToSave: string;
+
+      if (existingUser && existingUser.passwordHash) {
+        const isMatch = await verifyPassword(password, existingUser.passwordHash);
+        if (!isMatch) {
+          res.status(401).json({
+            error: 'Onjuist wachtwoord voor dit e-mailadres.',
+          });
+          return;
+        }
+        passwordHashToSave = existingUser.passwordHash;
+      } else {
+        passwordHashToSave = await hashPassword(password);
+      }
+
+      const derivedId =
+        existingUser?.id ||
+        `usr_${crypto.createHash('sha256').update(cleanEmail).digest('hex').slice(0, 24)}`;
+
+      const defaultName =
+        sanitizeServerString(name, 100) ||
+        existingUser?.name ||
+        cleanEmail
+          .split('@')[0]
+          .replace(/[._-]+/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase()) ||
+        'Bierliefhebber';
+
+      const role: 'admin' | 'user' = isVerifiedAdminEmail(cleanEmail, true) ? 'admin' : 'user';
+
+      const dbUser = await centralDb.upsertUser({
+        id: derivedId,
+        email: cleanEmail,
+        name: defaultName,
+        googleName: existingUser?.googleName || defaultName,
+        role,
+        passwordHash: passwordHashToSave,
+        avatarUrl: existingUser?.avatarUrl,
+        lastActiveAt: new Date().toISOString(),
+      });
+
+      const signedCookieToken = createSignedSessionToken({
+        uid: dbUser.id,
+        email: dbUser.email,
+        name: dbUser.name,
+        emailVerified: true,
+      });
+
+      const isSecure = Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
+      res.setHeader(
+        'Set-Cookie',
+        `bierlog_session=${encodeURIComponent(signedCookieToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}${isSecure ? '; Secure' : ''}`
+      );
+
+      const records = await centralDb.getUserRecords(dbUser.id);
+      res.json({
+        authenticated: true,
+        user: {
+          id: dbUser.id,
+          email: dbUser.email,
+          name: dbUser.name,
+          googleName: dbUser.googleName,
+          avatarUrl: dbUser.avatarUrl,
+          role: dbUser.role,
+          createdAt: dbUser.createdAt,
+        },
+        records,
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Inloggen op de server is mislukt.',
+      });
     }
   });
 
@@ -144,7 +248,7 @@ async function startServer() {
         emailVerified: user.emailVerified,
       });
 
-      const isSecure = process.env.NODE_ENV === 'production';
+      const isSecure = Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
       res.setHeader(
         'Set-Cookie',
         `bierlog_session=${encodeURIComponent(signedCookieToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}${isSecure ? '; Secure' : ''}`

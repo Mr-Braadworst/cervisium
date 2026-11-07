@@ -34,28 +34,28 @@
 
 Alles — het bouwen van de website, de Express-server, het genereren van geheime sleutels én **de volledige PostgreSQL-database** — draait **100% binnenin 1 enkele Docker-container**.
 
-### Optie 1A: Op Linux / macOS / VPS (1 commando, zonder `git clone`):
+### Optie 1A: Op Ubuntu / Linux / macOS (1 commando met `docker`):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Mr-Braadworst/cervisium/main/docker-compose.yml -o docker-compose.yml && GITHUB_REPO=https://github.com/Mr-Braadworst/cervisium.git docker compose up -d --build
+sudo docker build -t cervisium https://github.com/Mr-Braadworst/cervisium.git#main && sudo docker run -d --name cervisium --restart unless-stopped -p 3000:3000 -v bierlog_data:/data cervisium
 ```
 
-### Optie 1B: Op Windows PowerShell (1 commando, zonder `git clone`):
-```powershell
-curl.exe -fsSL https://raw.githubusercontent.com/Mr-Braadworst/cervisium/main/docker-compose.yml -o docker-compose.yml; $env:GITHUB_REPO="https://github.com/Mr-Braadworst/cervisium.git"; docker compose up -d --build
+### Optie 1B: Op Ubuntu / Linux met `docker-compose`:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mr-Braadworst/cervisium/refs/heads/main/docker-compose.yml | sed 's|\${GITHUB_REPO:-\.}|https://github.com/Mr-Braadworst/cervisium.git#main|g' > docker-compose.yml && sudo docker-compose up -d --build
 ```
 
 ### Optie 1C: Universeel met `git clone` (werkt overal):
 ```bash
-git clone https://github.com/Mr-Braadworst/cervisium.git && cd cervisium && docker compose up -d --build
+git clone https://github.com/Mr-Braadworst/cervisium.git && cd cervisium && sudo docker build -t cervisium . && sudo docker run -d --name cervisium --restart unless-stopped -p 3000:3000 -v bierlog_data:/data cervisium
 ```
 
 ### Optie 2: Losse `docker-compose.yml` (bijv. voor Portainer, Synology NAS of VPS)
-Plak dit in je `docker-compose.yml` (of in Portainer Stacks) en voer `docker compose up -d --build` uit:
+Plak dit in je `docker-compose.yml` (of in Portainer Stacks) en voer `sudo docker-compose up -d --build` uit:
 ```yaml
 services:
   bierlog:
     build:
-      context: https://github.com/Mr-Braadworst/cervisium.git
+      context: https://github.com/Mr-Braadworst/cervisium.git#main
       dockerfile: Dockerfile
     container_name: cervisium
     restart: unless-stopped

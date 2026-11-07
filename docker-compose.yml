@@ -2,11 +2,11 @@ services:
   # ----------------------------------------------------------------------------
   # BierLog / Cervisium All-in-One Container
   # (Website + Express API + Eigen PostgreSQL Database in 1 container)
-  # Bouwt rechtstreeks vanuit https://github.com/Mr-Braadworst/cervisium.git
+  # Bouwt rechtstreeks vanuit https://github.com/Mr-Braadworst/cervisium.git#main
   # ----------------------------------------------------------------------------
   bierlog:
     build:
-      context: ${GITHUB_REPO:-https://github.com/Mr-Braadworst/cervisium.git}
+      context: ${GITHUB_REPO:-https://github.com/Mr-Braadworst/cervisium.git#main}
       dockerfile: Dockerfile
     container_name: cervisium
     restart: unless-stopped

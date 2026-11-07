@@ -175,6 +175,49 @@ export default function App() {
         );
       } else {
         setFirebaseUid(null);
+        // Controleer of er een actieve Docker PostgreSQL server-sessie (HttpOnly cookie) bestaat
+        try {
+          const res = await fetch('/api/me', {
+            method: 'GET',
+            credentials: 'include',
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.user?.id) {
+              const serverAccount: UserAccount = {
+                id: data.user.id,
+                name: data.user.name || 'Bierliefhebber',
+                googleName: data.user.googleName,
+                email: data.user.email || '',
+                role: data.user.role,
+                avatarUrl: data.user.avatarUrl,
+                createdAt: data.user.createdAt || new Date().toISOString(),
+              };
+              if (data.records) {
+                if (Array.isArray(data.records.categories) && data.records.categories.length > 0) {
+                  saveCategories(serverAccount.id, data.records.categories);
+                }
+                if (Array.isArray(data.records.beers) && data.records.beers.length > 0) {
+                  saveBeers(serverAccount.id, data.records.beers);
+                }
+                if (Array.isArray(data.records.tastings) && data.records.tastings.length > 0) {
+                  saveTastings(serverAccount.id, data.records.tastings);
+                }
+                if (Array.isArray(data.records.glasses) && data.records.glasses.length > 0) {
+                  saveGlasses(serverAccount.id, data.records.glasses);
+                }
+              }
+              loginUser(serverAccount);
+              setAuthenticatedUser(serverAccount);
+              setActiveUserState(serverAccount);
+              reloadDataForUser(serverAccount);
+              return;
+            }
+          }
+        } catch {
+          // Server niet bereikbaar of geen actieve sessie
+        }
+
         logoutUser();
         setAuthenticatedUser(null);
         setActiveUserState(null);
@@ -186,6 +229,9 @@ export default function App() {
 
   // Firestore Real-Time Subscriptions voor de eigen gebruiker OF wanneer de geverifieerde Admin meekijkt met een andere gebruiker
   useEffect(() => {
+    const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
+    if (env.VITE_USE_FIRESTORE === 'false') return;
+
     const canSubscribe =
       Boolean(activeUser && firebaseUid) &&
       (activeUser!.id === firebaseUid || isSuperAdmin(authenticatedUser));
@@ -262,20 +308,27 @@ export default function App() {
   }, [activeUser?.id, firebaseUid, authenticatedUser?.id]);
 
   const handleLogin = (user: UserAccount) => {
-    const fbUser = auth.currentUser;
-    if (!fbUser || fbUser.uid !== user.id) {
-      return;
-    }
+    if (!user || !user.id) return;
     loginUser(user);
     setAuthenticatedUser(user);
     setActiveUserState(user);
     reloadDataForUser(user);
-    syncUserProfileFirestore(user).catch((e) =>
-      console.warn('User profile sync notice:', e)
-    );
+    if (auth.currentUser && auth.currentUser.uid === user.id) {
+      syncUserProfileFirestore(user).catch((e) =>
+        console.warn('User profile sync notice:', e)
+      );
+    }
   };
 
   const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+      // Ignore server logout errors
+    }
     try {
       await signOut(auth);
     } catch (e) {
@@ -294,7 +347,10 @@ export default function App() {
 
   const handleSwitchUser = (newUser: UserAccount) => {
     const fbUser = auth.currentUser;
-    const isOwnSession = Boolean(fbUser && fbUser.uid === newUser.id);
+    const isOwnSession = Boolean(
+      (fbUser && fbUser.uid === newUser.id) ||
+        (authenticatedUser && authenticatedUser.id === newUser.id)
+    );
     if (!isOwnSession && !isSuperAdmin(authenticatedUser)) {
       return;
     }
@@ -304,7 +360,7 @@ export default function App() {
     }
     setActiveUserState(newUser);
     reloadDataForUser(newUser);
-    if (isOwnSession) {
+    if (fbUser && fbUser.uid === newUser.id) {
       syncUserProfileFirestore(newUser).catch((e) =>
         console.warn('User profile sync notice:', e)
       );
@@ -313,7 +369,10 @@ export default function App() {
 
   const handleUpdateUserProfile = async (updatedUser: UserAccount) => {
     const fbUser = auth.currentUser;
-    const isOwnSession = Boolean(fbUser && fbUser.uid === updatedUser.id);
+    const isOwnSession = Boolean(
+      (fbUser && fbUser.uid === updatedUser.id) ||
+        (authenticatedUser && authenticatedUser.id === updatedUser.id)
+    );
     if (!isOwnSession && !isSuperAdmin(authenticatedUser)) {
       return;
     }
@@ -322,10 +381,20 @@ export default function App() {
       persistActiveUser(updatedUser);
       setAuthenticatedUser(updatedUser);
     }
-    try {
-      await syncUserProfileFirestore(updatedUser);
-    } catch (e) {
-      console.warn('User profile sync notice:', e);
+    if (isOwnSession) {
+      fetch('/api/me/profile', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: updatedUser.name, avatarUrl: updatedUser.avatarUrl }),
+      }).catch(() => {});
+    }
+    if (fbUser && fbUser.uid === updatedUser.id) {
+      try {
+        await syncUserProfileFirestore(updatedUser);
+      } catch (e) {
+        console.warn('User profile sync notice:', e);
+      }
     }
   };
 

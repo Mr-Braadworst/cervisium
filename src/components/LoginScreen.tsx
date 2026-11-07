@@ -17,6 +17,9 @@ import {
   AlertCircle,
   ShieldAlert,
   Clock,
+  Mail,
+  KeyRound,
+  User,
 } from 'lucide-react';
 
 interface LoginScreenProps {
@@ -74,6 +77,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [secondsRemaining, setSecondsRemaining] = useState<number>(0);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+
+  // Directe Server / Docker PostgreSQL login velden (voor eigen IP/domein zonder Firebase pop-up restrictie)
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [nameInput, setNameInput] = useState('');
+  const emailInputRef = useRef<HTMLInputElement>(null);
   const googleGsiButtonRef = useRef<HTMLDivElement>(null);
 
   const isLocked = secondsRemaining > 0;
@@ -84,6 +94,46 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const seconds = totalSec % 60;
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
+
+  const applyServerLoginResponse = useCallback(
+    (data: {
+      user: UserAccount;
+      records?: {
+        categories?: any[];
+        beers?: any[];
+        tastings?: any[];
+        glasses?: any[];
+      };
+    }): UserAccount => {
+      const serverUser: UserAccount = {
+        id: data.user.id,
+        name: data.user.name,
+        googleName: data.user.googleName,
+        email: data.user.email,
+        role: data.user.role,
+        avatarUrl: data.user.avatarUrl,
+        createdAt: data.user.createdAt || new Date().toISOString(),
+      };
+
+      if (data.records) {
+        if (Array.isArray(data.records.categories) && data.records.categories.length > 0) {
+          saveCategories(serverUser.id, data.records.categories);
+        }
+        if (Array.isArray(data.records.beers) && data.records.beers.length > 0) {
+          saveBeers(serverUser.id, data.records.beers);
+        }
+        if (Array.isArray(data.records.tastings) && data.records.tastings.length > 0) {
+          saveTastings(serverUser.id, data.records.tastings);
+        }
+        if (Array.isArray(data.records.glasses) && data.records.glasses.length > 0) {
+          saveGlasses(serverUser.id, data.records.glasses);
+        }
+      }
+
+      return serverUser;
+    },
+    []
+  );
 
   // Verifieer een Google ID Token op onze eigen Docker/Express server (/api/auth/google)
   // en sla het account + sessie-cookie direct op in de eigen Docker PostgreSQL database.
@@ -98,42 +148,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         });
 
         if (res.ok) {
-          const data = (await res.json()) as {
-            user: UserAccount;
-            records?: {
-              categories?: any[];
-              beers?: any[];
-              tastings?: any[];
-              glasses?: any[];
-            };
-          };
-
-          const serverUser: UserAccount = {
-            id: data.user.id,
-            name: data.user.name,
-            googleName: data.user.googleName,
-            email: data.user.email,
-            avatarUrl: data.user.avatarUrl,
-            createdAt: data.user.createdAt || new Date().toISOString(),
-          };
-
-          // Laad eventuele collecties vanuit de eigen Docker PostgreSQL database
-          if (data.records) {
-            if (Array.isArray(data.records.categories) && data.records.categories.length > 0) {
-              saveCategories(serverUser.id, data.records.categories);
-            }
-            if (Array.isArray(data.records.beers) && data.records.beers.length > 0) {
-              saveBeers(serverUser.id, data.records.beers);
-            }
-            if (Array.isArray(data.records.tastings) && data.records.tastings.length > 0) {
-              saveTastings(serverUser.id, data.records.tastings);
-            }
-            if (Array.isArray(data.records.glasses) && data.records.glasses.length > 0) {
-              saveGlasses(serverUser.id, data.records.glasses);
-            }
-          }
-
-          return serverUser;
+          const data = await res.json();
+          return applyServerLoginResponse(data);
         }
       } catch {
         // Gebruik fallback wanneer server nog aan het opstarten is
@@ -142,7 +158,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       if (fallbackAccount) return fallbackAccount;
       throw new Error('Kon Google-account niet verifiëren bij de server.');
     },
-    []
+    [applyServerLoginResponse]
   );
 
   // Check lockout status and update countdown timer
@@ -229,6 +245,77 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     document.head.appendChild(script);
   }, [isLocked, onLogin, verifyAndSyncWithDockerBackend]);
 
+  const registerFailedAttempt = (customMessage?: string) => {
+    const newAttempts = rateLimit.attempts + 1;
+    if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+      const newLockedUntil = Date.now() + LOCKOUT_DURATION_MS;
+      const newLimit: RateLimitData = { attempts: newAttempts, lockedUntil: newLockedUntil };
+      saveRateLimit(newLimit);
+      setRateLimit(newLimit);
+      setSecondsRemaining(Math.ceil(LOCKOUT_DURATION_MS / 1000));
+      setAuthError(
+        `Maximaal aantal inlogpogingen (${MAX_LOGIN_ATTEMPTS}) bereikt! Je account is voor 15 minuten tijdelijk vergrendeld ter beveiliging.`
+      );
+    } else {
+      const newLimit: RateLimitData = { attempts: newAttempts, lockedUntil: null };
+      saveRateLimit(newLimit);
+      setRateLimit(newLimit);
+      const remaining = MAX_LOGIN_ATTEMPTS - newAttempts;
+      setAuthError(
+        customMessage ||
+          `Inloggen mislukt. Poging ${newAttempts} van ${MAX_LOGIN_ATTEMPTS}. Nog ${remaining} poging(en) over.`
+      );
+    }
+  };
+
+  // Direct inloggen of account aanmaken op de eigen Docker PostgreSQL-database
+  const handleDirectServerLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLocked) return;
+
+    const cleanEmail = emailInput.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setAuthError('Vul een geldig e-mailadres in.');
+      return;
+    }
+    if (passwordInput.length < 8) {
+      setAuthError('Wachtwoord moet minimaal 8 tekens lang zijn.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    setAuthError(null);
+    setInfoMessage(null);
+
+    try {
+      const res = await fetch('/api/auth/account', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          password: passwordInput,
+          name: nameInput.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        registerFailedAttempt(data?.error || 'Onjuist e-mailadres of wachtwoord.');
+        return;
+      }
+
+      clearRateLimit();
+      setRateLimit({ attempts: 0, lockedUntil: null });
+      const serverAccount = applyServerLoginResponse(data);
+      onLogin(serverAccount);
+    } catch {
+      setAuthError('Kon geen verbinding maken met de server-database.');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
   const handleFirebaseGoogleSignIn = async () => {
     if (isLocked) {
       setAuthError(
@@ -239,6 +326,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
     setIsSigningIn(true);
     setAuthError(null);
+    setInfoMessage(null);
 
     try {
       const result = await signInWithPopup(auth, googleProvider);
@@ -261,42 +349,38 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       const verifiedAccount = await verifyAndSyncWithDockerBackend(idToken, fallbackAccount);
       onLogin(verifiedAccount);
     } catch (err: unknown) {
-      console.warn('Google Sign-In notice:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = (err as { code?: string })?.code || '';
 
-      const newAttempts = rateLimit.attempts + 1;
-      let newLockedUntil: number | null = null;
-
-      if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
-        newLockedUntil = Date.now() + LOCKOUT_DURATION_MS;
-        const newLimit: RateLimitData = { attempts: newAttempts, lockedUntil: newLockedUntil };
-        saveRateLimit(newLimit);
-        setRateLimit(newLimit);
-        setSecondsRemaining(Math.ceil(LOCKOUT_DURATION_MS / 1000));
-        setAuthError(
-          `Maximaal aantal inlogpogingen (${MAX_LOGIN_ATTEMPTS}) bereikt! Je account is voor 15 minuten tijdelijk vergrendeld ter beveiliging.`
+      // Op een eigen Ubuntu-server IP (zoals 192.168.x.x) of nieuw domein sluit Firebase de pop-up
+      // direct met 'auth/unauthorized-domain'. Tel dit NIET als mislukte poging, maar stuur de
+      // gebruiker direct naar de eigen Docker-server inlogvelden hieronder!
+      if (
+        msg.includes('unauthorized-domain') ||
+        code.includes('unauthorized-domain') ||
+        msg.includes('operation-not-supported') ||
+        code.includes('operation-not-supported')
+      ) {
+        setInfoMessage(
+          `Je bezoekt de site op een eigen server-adres (${window.location.hostname}). Gebruik hieronder direct je Google e-mailadres en wachtwoord om in te loggen op je eigen Docker-database!`
         );
-      } else {
-        const newLimit: RateLimitData = { attempts: newAttempts, lockedUntil: null };
-        saveRateLimit(newLimit);
-        setRateLimit(newLimit);
-
-        const remaining = MAX_LOGIN_ATTEMPTS - newAttempts;
-        const msg = err instanceof Error ? err.message : String(err);
-
-        if (msg.includes('popup-closed-by-user')) {
-          setAuthError(
-            `Inloggen geannuleerd. Nog ${remaining} van de ${MAX_LOGIN_ATTEMPTS} inlogpogingen over.`
-          );
-        } else if (msg.includes('popup-blocked')) {
-          setAuthError(
-            `Pop-up geblokkeerd door browser. Sta pop-ups toe. Nog ${remaining} inlogpoging(en) over.`
-          );
-        } else {
-          setAuthError(
-            `Google login mislukt. Poging ${newAttempts} van ${MAX_LOGIN_ATTEMPTS}. Nog ${remaining} poging(en) over.`
-          );
-        }
+        setTimeout(() => emailInputRef.current?.focus(), 50);
+        return;
       }
+
+      if (msg.includes('popup-closed-by-user') || code.includes('popup-closed-by-user')) {
+        setInfoMessage(
+          'Het Google pop-upvenster werd gesloten. Je kunt hieronder ook direct inloggen met je e-mailadres en wachtwoord op je eigen Docker-database.'
+        );
+        setTimeout(() => emailInputRef.current?.focus(), 50);
+        return;
+      }
+
+      registerFailedAttempt(
+        msg.includes('popup-blocked')
+          ? 'Pop-up geblokkeerd door browser. Gebruik het formulier hieronder om direct in te loggen.'
+          : undefined
+      );
     } finally {
       setIsSigningIn(false);
     }
@@ -322,7 +406,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             </p>
           </div>
           <p className="text-sm text-zinc-400 max-w-xs mx-auto leading-relaxed">
-            Veilig inloggen via jouw geverifieerde Google-account.
+            Log veilig in op jouw eigen database of via Google.
           </p>
         </div>
 
@@ -331,11 +415,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
             <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5 text-amber-400" />
-              Alleen Google Login
+              Beveiligde Inlog
             </span>
             <span className="text-[11px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              Beveiligd
+              Eigen Database Actief
             </span>
           </div>
 
@@ -382,6 +466,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             )}
           </div>
 
+          {/* Info Message when on self-hosted Ubuntu IP/domain */}
+          {infoMessage && (
+            <div className="p-3.5 rounded-2xl border border-amber-500/40 bg-amber-500/10 text-amber-200 text-xs flex items-start gap-2.5 leading-relaxed">
+              <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <span>{infoMessage}</span>
+            </div>
+          )}
+
           {/* Error Message if present */}
           {authError && (
             <div
@@ -398,6 +490,81 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             </div>
           )}
 
+          {/* Direct Inloggen / Account op Eigen Docker PostgreSQL Database */}
+          <form onSubmit={handleDirectServerLogin} className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+                Google E-mailadres
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  ref={emailInputRef}
+                  type="email"
+                  required
+                  disabled={isSigningIn || isLocked}
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  placeholder="jouwnaam@gmail.com"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+                Wachtwoord (min. 8 tekens)
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  disabled={isSigningIn || isLocked}
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+                Weergavenaam (optioneel bij eerste keer)
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  disabled={isSigningIn || isLocked}
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  placeholder="Bijv. Constantijn"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSigningIn || isLocked}
+              className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl font-bold text-sm bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>{isSigningIn ? 'Bezig met inloggen...' : 'Inloggen / Account Openen'}</span>
+            </button>
+          </form>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-zinc-800" />
+            <span className="flex-shrink mx-3 text-[11px] text-zinc-500 uppercase font-semibold">
+              of via Google Pop-up
+            </span>
+            <div className="flex-grow border-t border-zinc-800" />
+          </div>
+
           {/* Standalone Google Identity Services (wanneer VITE_GOOGLE_CLIENT_ID is ingesteld) */}
           {STANDALONE_GOOGLE_CLIENT_ID &&
             STANDALONE_GOOGLE_CLIENT_ID !== 'YOUR_GOOGLE_OAUTH_CLIENT_ID' && (
@@ -405,14 +572,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             )}
 
           {/* Official Google Sign-In Button */}
-          <div className="space-y-2 pt-1">
+          <div className="space-y-2">
             <button
+              type="button"
               onClick={handleFirebaseGoogleSignIn}
               disabled={isSigningIn || isLocked}
-              className={`w-full flex items-center justify-center gap-3 px-5 py-3.5 rounded-2xl font-bold text-sm shadow-lg transition-all ${
+              className={`w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl font-bold text-sm shadow-lg transition-all ${
                 isLocked
                   ? 'bg-zinc-800 text-zinc-500 border border-zinc-700/60 cursor-not-allowed opacity-60'
-                  : 'bg-white hover:bg-zinc-100 active:bg-zinc-200 text-zinc-900 cursor-pointer shadow-amber-500/5 hover:shadow-amber-500/10 hover:scale-[1.01]'
+                  : 'bg-white hover:bg-zinc-100 active:bg-zinc-200 text-zinc-900 cursor-pointer shadow-amber-500/5 hover:shadow-amber-500/10'
               }`}
             >
               {isLocked ? (
@@ -444,22 +612,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 </>
               )}
             </button>
-
-            <p className="text-[11px] text-zinc-500 text-center pt-1">
-              Handmatige e-mailinvoer is uitgeschakeld. Alleen geverifieerde Google-authenticatie is
-              toegestaan.
-            </p>
           </div>
 
           {/* Privacy & data scoping guarantee */}
           <div className="p-3.5 rounded-2xl bg-zinc-950/60 border border-zinc-800/80 text-[11px] text-zinc-400 space-y-1">
             <div className="flex items-center gap-1.5 font-semibold text-zinc-300">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              Persoonlijke Data Isolatie
+              Persoonlijke Data Isolatie (Docker PostgreSQL)
             </div>
             <p className="leading-relaxed text-zinc-400">
-              Al jouw bieren, cijfers, foto&apos;s en zelfgemaakte categorieën worden strikt
-              gekoppeld aan jouw unieke Google-account en zijn nooit zichtbaar voor anderen.
+              Al jouw bieren, cijfers, foto&apos;s en categorieën worden versleuteld opgeslagen in
+              jouw eigen database en zijn nooit zichtbaar voor anderen.
             </p>
           </div>
         </div>

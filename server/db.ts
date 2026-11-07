@@ -189,6 +189,7 @@ class CentralDatabaseClient {
           name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
           google_name = COALESCE(EXCLUDED.google_name, users.google_name),
           role = EXCLUDED.role,
+          password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),
           avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
           settings = COALESCE(EXCLUDED.settings, users.settings),
           last_active_at = EXCLUDED.last_active_at
@@ -214,6 +215,7 @@ class CentralDatabaseClient {
         name: row.name,
         googleName: row.google_name || undefined,
         role: row.role === 'admin' ? 'admin' : 'user',
+        passwordHash: row.password_hash || undefined,
         avatarUrl: row.avatar_url || undefined,
         settings: row.settings || {},
         createdAt: new Date(row.created_at).toISOString(),
@@ -264,6 +266,40 @@ class CentralDatabaseClient {
     }
 
     return this.memoryUsers.get(userId) || null;
+  }
+
+  public async getUserByEmail(email: string): Promise<DbUserRecord | null> {
+    await this.init();
+    const safeEmail = sanitizeServerString(email, 180).toLowerCase();
+    if (!safeEmail || !safeEmail.includes('@')) return null;
+
+    if (this.pool) {
+      const res = await this.pool.query(
+        'SELECT * FROM users WHERE LOWER(email) = $1 LIMIT 1',
+        [safeEmail]
+      );
+      if (res.rows.length === 0) return null;
+      const row = res.rows[0];
+      return {
+        id: row.id,
+        email: row.email || '',
+        name: row.name,
+        googleName: row.google_name || undefined,
+        role: row.role === 'admin' ? 'admin' : 'user',
+        passwordHash: row.password_hash || undefined,
+        avatarUrl: row.avatar_url || undefined,
+        settings: row.settings || {},
+        createdAt: new Date(row.created_at).toISOString(),
+        lastActiveAt: row.last_active_at ? new Date(row.last_active_at).toISOString() : undefined,
+      };
+    }
+
+    for (const u of this.memoryUsers.values()) {
+      if (u.email.toLowerCase() === safeEmail) {
+        return u;
+      }
+    }
+    return null;
   }
 
   public async getUserRecords(userId: string) {
