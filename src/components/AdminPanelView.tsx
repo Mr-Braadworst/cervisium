@@ -14,6 +14,8 @@ import {
   buildCompleteAdminExportJson,
   importCompleteAdminDataJson,
   AdminImportReport,
+  fetchSystemSettings,
+  updateCustomDomain,
 } from '../services/adminService';
 import {
   ShieldCheck,
@@ -38,6 +40,9 @@ import {
   Star,
   AlertTriangle,
   FileJson,
+  Globe,
+  Save,
+  Link as LinkIcon,
 } from 'lucide-react';
 
 interface AdminPanelViewProps {
@@ -75,6 +80,31 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   const [importError, setImportError] = useState<string | null>(null);
   const authorized = isSuperAdmin(adminUser);
 
+  // Custom Domain state
+  const [customDomainInput, setCustomDomainInput] = useState<string>('https://cervisium.nl');
+  const [savingDomain, setSavingDomain] = useState<boolean>(false);
+  const [domainStatus, setDomainStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleSaveCustomDomain = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingDomain(true);
+    setDomainStatus(null);
+    const res = await updateCustomDomain(customDomainInput);
+    if (res.success && res.customDomain) {
+      setCustomDomainInput(res.customDomain);
+      setDomainStatus({
+        type: 'success',
+        text: `Domein opgeslagen! Alle vrienden-uitnodigingen worden nu gegenereerd met: ${res.customDomain}`,
+      });
+    } else {
+      setDomainStatus({
+        type: 'error',
+        text: res.error || 'Fout bij opslaan van het domein.',
+      });
+    }
+    setSavingDomain(false);
+  };
+
   const loadStats = useCallback(async () => {
     if (!authorized) {
       setStats(null);
@@ -86,6 +116,11 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     setLoading(true);
     setError(null);
     try {
+      fetchSystemSettings().then((sys) => {
+        if (sys && sys.customDomain) {
+          setCustomDomainInput(sys.customDomain);
+        }
+      });
       const serverCheck = await verifyAdminServerSide(adminUser);
       if (!serverCheck.verified) {
         setStats(null);
@@ -414,6 +449,78 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
             </p>
           </div>
         )}
+      </div>
+
+      {/* SECTIE: EIGEN DOMEIN & UITNODIGINGSLINKS */}
+      <div className="bg-zinc-900/90 border border-amber-500/30 rounded-3xl p-6 shadow-xl space-y-5">
+        <div className="flex items-start gap-3 border-b border-zinc-800 pb-4">
+          <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 shrink-0">
+            <Globe className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-lg font-extrabold text-zinc-100">
+              Eigen Domein &amp; Uitnodigingslinks
+            </h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Stel jouw eigen domein in (bijv. <code className="text-amber-300">https://cervisium.nl</code> of <code className="text-amber-300">cervisium.nl</code>). Alle vrienden-uitnodigingslinks die gebruikers in de app kopiëren of via WhatsApp/E-mail delen, worden automatisch met dit domein gegenereerd.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveCustomDomain} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+              <LinkIcon className="w-3.5 h-3.5 text-amber-400" />
+              Systeem Domein voor Uitnodigingen
+            </label>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                value={customDomainInput}
+                onChange={(e) => setCustomDomainInput(e.target.value)}
+                placeholder="https://cervisium.nl"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-amber-500 text-zinc-100 text-sm outline-none transition-colors"
+                required
+              />
+              <button
+                type="submit"
+                disabled={savingDomain}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all shrink-0 cursor-pointer"
+              >
+                <Save className={`w-4 h-4 ${savingDomain ? 'animate-spin' : ''}`} />
+                {savingDomain ? 'Opslaan...' : 'Domein Opslaan'}
+              </button>
+            </div>
+          </div>
+
+          {/* Live Preview van de link */}
+          <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-400 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="font-semibold text-zinc-300">Voorbeeld uitnodigingslink voor gebruikers:</span>
+            <code className="text-amber-300 font-mono bg-zinc-900 px-3 py-1 rounded-lg border border-amber-500/20 shrink-0">
+              {(customDomainInput.trim().startsWith('http')
+                ? customDomainInput.trim().replace(/\/+$/, '')
+                : `https://${customDomainInput.trim()}`.replace(/\/+$/, '')) || 'https://cervisium.nl'}
+              /?invite=voorbeeld-id
+            </code>
+          </div>
+
+          {domainStatus && (
+            <div
+              className={`p-3.5 rounded-2xl text-xs flex items-center gap-2.5 ${
+                domainStatus.type === 'success'
+                  ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-200'
+                  : 'bg-rose-500/15 border border-rose-500/30 text-rose-200'
+              }`}
+            >
+              {domainStatus.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              )}
+              <span>{domainStatus.text}</span>
+            </div>
+          )}
+        </form>
       </div>
 
       {error && (

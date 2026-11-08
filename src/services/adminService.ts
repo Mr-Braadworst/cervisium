@@ -973,52 +973,6 @@ export async function fetchAdminDashboardData(
     }
   }
 
-  // Verwijder eventuele per ongeluk gekopieerde bieren/proefnotities/glazen van andere gebruikers uit het admin-account
-  const nonAdminBeerIds = new Set<string>();
-  const nonAdminTastingIds = new Set<string>();
-  const nonAdminGlassIds = new Set<string>();
-
-  for (const [uid] of Array.from(userMap.entries())) {
-    if (uid === adminUser.id) continue;
-    for (const bId of beersByUser.get(uid)?.keys() || []) nonAdminBeerIds.add(bId);
-    for (const tId of tastingsByUser.get(uid)?.keys() || []) nonAdminTastingIds.add(tId);
-    for (const gId of glassesByUser.get(uid)?.keys() || []) nonAdminGlassIds.add(gId);
-  }
-
-  const adminBeersMap = beersByUser.get(adminUser.id);
-  const adminTastingsMap = tastingsByUser.get(adminUser.id);
-  const adminGlassesMap = glassesByUser.get(adminUser.id);
-  let adminWasCleaned = false;
-
-  if (adminBeersMap && nonAdminBeerIds.size > 0) {
-    for (const bId of Array.from(adminBeersMap.keys())) {
-      if (nonAdminBeerIds.has(bId)) {
-        adminBeersMap.delete(bId);
-        adminWasCleaned = true;
-      }
-    }
-  }
-  if (adminTastingsMap && (nonAdminTastingIds.size > 0 || nonAdminBeerIds.size > 0)) {
-    for (const [tId, tObj] of Array.from(adminTastingsMap.entries())) {
-      const refBeerId = typeof tObj.beerId === 'string' ? tObj.beerId : '';
-      if (nonAdminTastingIds.has(tId) || (refBeerId && nonAdminBeerIds.has(refBeerId))) {
-        adminTastingsMap.delete(tId);
-        adminWasCleaned = true;
-      }
-    }
-  }
-  if (adminGlassesMap && nonAdminGlassIds.size > 0) {
-    for (const gId of Array.from(adminGlassesMap.keys())) {
-      if (nonAdminGlassIds.has(gId)) {
-        adminGlassesMap.delete(gId);
-        adminWasCleaned = true;
-      }
-    }
-  }
-  if (adminWasCleaned) {
-    void syncUserWithServerDatabase(adminUser);
-  }
-
   // Filter eventuele lege spook-accounts zonder e-mailadres én zonder items eruit
   for (const [uid, u] of Array.from(userMap.entries())) {
     if (uid === adminUser.id) continue;
@@ -1967,5 +1921,44 @@ export async function importCompleteAdminDataJson(
   }
 
   return report;
+}
+
+export async function fetchSystemSettings(): Promise<{ customDomain: string }> {
+  try {
+    const res = await fetch('/api/system/settings');
+    if (!res.ok) return { customDomain: 'https://cervisium.nl' };
+    const data = await res.json();
+    const domain = data.customDomain || 'https://cervisium.nl';
+    try {
+      localStorage.setItem('bierlog_custom_domain', domain);
+    } catch {}
+    return { customDomain: domain };
+  } catch {
+    return { customDomain: 'https://cervisium.nl' };
+  }
+}
+
+export async function updateCustomDomain(customDomain: string): Promise<{ success: boolean; customDomain?: string; error?: string }> {
+  try {
+    const headers = await buildServerAuthHeaders(true);
+    const res = await fetch('/api/system/settings', {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify({ customDomain }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Fout bij opslaan domein.' };
+    }
+    if (data.customDomain) {
+      try {
+        localStorage.setItem('bierlog_custom_domain', data.customDomain);
+      } catch {}
+    }
+    return { success: true, customDomain: data.customDomain };
+  } catch {
+    return { success: false, error: 'Netwerkfout bij bijwerken domein.' };
+  }
 }
 

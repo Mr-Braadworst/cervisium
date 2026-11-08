@@ -100,6 +100,8 @@ class CentralDatabaseClient {
       sessions: Map<string, Record<string, unknown>>;
     }
   >();
+  private memoryFriends = new Map<string, Set<string>>();
+  private memorySystemSettings = new Map<string, string>();
 
   public isPostgresConfigured(): boolean {
     const url = process.env.DATABASE_URL?.trim();
@@ -149,6 +151,20 @@ class CentralDatabaseClient {
 
           CREATE INDEX IF NOT EXISTS idx_user_records_user_type
             ON user_records(user_id, collection_type);
+
+          CREATE TABLE IF NOT EXISTS user_friends (
+            user_id VARCHAR(128) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            friend_id VARCHAR(128) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status VARCHAR(20) NOT NULL DEFAULT 'accepted',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, friend_id)
+          );
+
+          CREATE TABLE IF NOT EXISTS system_settings (
+            key VARCHAR(64) PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
         `);
 
         this.initialized = true;
@@ -206,29 +222,16 @@ class CentralDatabaseClient {
    */
   public async consolidateDuplicateDatabaseUsers(): Promise<void> {
     if (!this.pool) {
-      let primaryOwnerUid: string | null = null;
-
       for (const [uid, u] of Array.from(this.memoryUsers.entries())) {
         const cleanEmail = u.email.trim().toLowerCase();
         if (!isPlaceholderEmailValue(cleanEmail)) {
           const canonicalId = getCanonicalUserIdForEmail(cleanEmail) || uid;
-          if (isVerifiedAdminEmail(cleanEmail, true) || !primaryOwnerUid) {
-            primaryOwnerUid = canonicalId;
-          }
           if (uid !== canonicalId) {
             const existingCanonical = this.memoryUsers.get(canonicalId);
             if (!existingCanonical) {
               this.memoryUsers.set(canonicalId, { ...u, id: canonicalId });
             }
             this.mergeMemoryUserInto(uid, canonicalId);
-          }
-        }
-      }
-
-      if (primaryOwnerUid) {
-        for (const [uid, u] of Array.from(this.memoryUsers.entries())) {
-          if (uid !== primaryOwnerUid && isPlaceholderEmailValue(u.email)) {
-            this.mergeMemoryUserInto(uid, primaryOwnerUid);
           }
         }
       }
@@ -240,17 +243,11 @@ class CentralDatabaseClient {
       const rows = res.rows;
       if (rows.length === 0) return;
 
-      let primaryOwnerCanonicalId: string | null = null;
-
       for (const row of rows) {
         const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
         if (!isPlaceholderEmailValue(email)) {
           const canonicalId = getCanonicalUserIdForEmail(email);
           if (!canonicalId) continue;
-
-          if (isVerifiedAdminEmail(email, true) || !primaryOwnerCanonicalId) {
-            primaryOwnerCanonicalId = canonicalId;
-          }
 
           if (row.id !== canonicalId) {
             await this.pool.query(
@@ -277,18 +274,6 @@ class CentralDatabaseClient {
             );
             await this.mergePostgresUserInto(row.id, canonicalId);
           }
-        }
-      }
-
-      // Koppel ook eventuele wees-/gast-accounts (waar email leeg of placeholder is)
-      // aan het eigenaar-account zodat bieren aangemaakt op IP:3000 nooit achterblijven op een gast-ID
-      if (primaryOwnerCanonicalId) {
-        const remainingGuests = await this.pool.query(
-          "SELECT id, email FROM users WHERE id <> $1 AND (email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl')",
-          [primaryOwnerCanonicalId]
-        );
-        for (const guestRow of remainingGuests.rows) {
-          await this.mergePostgresUserInto(guestRow.id, primaryOwnerCanonicalId);
         }
       }
     } catch (err) {
@@ -455,15 +440,13 @@ class CentralDatabaseClient {
         }
 
         if (safeEmail) {
-          const isOwner = isVerifiedAdminEmail(safeEmail, true);
           const emailCheck = await client.query(
             `
             SELECT * FROM users
             WHERE LOWER(email) = $1
                OR id = $2
-               OR ($3::boolean = true AND (email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl'))
             `,
-            [safeEmail, user.id, isOwner]
+            [safeEmail, user.id]
           );
           for (const existingRow of emailCheck.rows) {
             if (existingRow.id !== safeId) {
@@ -533,7 +516,7 @@ class CentralDatabaseClient {
           ]
         );
 
-        // Verplaats alle bieren, proefnotities, glazen en categorieën van eventuele oude ID's naar dit account
+        // Verplaats alle bieren, proefnotities, glazen en categorieën van eventuele oude ID's met ditzelfde e-mailadres naar dit account
         for (const oldId of oldIdsToMerge) {
           if (!oldId || oldId === safeId) continue;
           await client.query(
@@ -579,15 +562,10 @@ class CentralDatabaseClient {
       }
     }
 
-    // Memory fallback: controleer ook of er al een ander account met hetzelfde e-mailadres (of gastaccount voor eigenaar) bestaat
+    // Memory fallback: controleer ook of er al een ander account met exact hetzelfde e-mailadres bestaat
     if (safeEmail) {
-      const isOwner = isVerifiedAdminEmail(safeEmail, true);
       for (const [existingUid, existingUser] of Array.from(this.memoryUsers.entries())) {
-        if (
-          existingUid !== safeId &&
-          (existingUser.email.toLowerCase() === safeEmail ||
-            (isOwner && isPlaceholderEmailValue(existingUser.email)))
-        ) {
+        if (existingUid !== safeId && existingUser.email.toLowerCase() === safeEmail) {
           this.mergeMemoryUserInto(existingUid, safeId);
         }
       }
@@ -731,6 +709,184 @@ class CentralDatabaseClient {
       glasses: Array.from(bucket.glasses.values()),
       pubDeals: Array.from(bucket.pubDeals.values()),
       sessions: Array.from(bucket.sessions.values()),
+    };
+  }
+
+  // --- Vrienden Functionaliteit ---
+
+  public async addFriendship(
+    userId: string,
+    targetIdentifier: string
+  ): Promise<{ success: boolean; friend?: DbUserRecord; message: string }> {
+    await this.init();
+    if (!isValidServerId(userId)) {
+      return { success: false, message: 'Ongeldige gebruiker.' };
+    }
+
+    const cleanTarget = (targetIdentifier || '').trim().toLowerCase();
+    if (!cleanTarget) {
+      return { success: false, message: 'Geen uitnodigingscode of vriend opgegeven.' };
+    }
+
+    let friendProfile: DbUserRecord | null = null;
+    if (cleanTarget.includes('@')) {
+      friendProfile = await this.getUserByEmail(cleanTarget);
+    } else {
+      const canonicalTarget = getCanonicalUserIdForEmail(cleanTarget) || cleanTarget;
+      friendProfile = await this.getUserById(canonicalTarget);
+      if (!friendProfile && isValidServerId(cleanTarget)) {
+        friendProfile = await this.getUserById(cleanTarget);
+      }
+    }
+
+    if (!friendProfile) {
+      return { success: false, message: 'Uitgenodigde gebruiker is niet gevonden.' };
+    }
+
+    if (friendProfile.id === userId) {
+      return { success: false, message: 'Je kunt jezelf niet als vriend toevoegen.' };
+    }
+
+    if (this.pool) {
+      try {
+        await this.pool.query(
+          `
+          INSERT INTO user_friends (user_id, friend_id, status, created_at)
+          VALUES ($1, $2, 'accepted', NOW()), ($2, $1, 'accepted', NOW())
+          ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted';
+          `,
+          [userId, friendProfile.id]
+        );
+      } catch (err) {
+        console.warn('[Database] addFriendship fout:', err);
+      }
+    }
+
+    if (!this.memoryFriends.has(userId)) this.memoryFriends.set(userId, new Set());
+    if (!this.memoryFriends.has(friendProfile.id)) this.memoryFriends.set(friendProfile.id, new Set());
+    this.memoryFriends.get(userId)!.add(friendProfile.id);
+    this.memoryFriends.get(friendProfile.id)!.add(userId);
+
+    return {
+      success: true,
+      friend: friendProfile,
+      message: `Je bent nu vrienden met ${friendProfile.name}!`,
+    };
+  }
+
+  public async getFriendsForUser(userId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl?: string;
+      beerCount: number;
+      tastingCount: number;
+      connectedAt: string;
+    }>
+  > {
+    await this.init();
+    if (!isValidServerId(userId)) return [];
+
+    if (this.pool) {
+      try {
+        const res = await this.pool.query(
+          `
+          SELECT u.id, u.email, u.name, u.avatar_url, f.created_at,
+            (SELECT COUNT(*) FROM user_records ur WHERE ur.user_id = u.id AND ur.collection_type = 'beers') AS beer_count,
+            (SELECT COUNT(*) FROM user_records ur WHERE ur.user_id = u.id AND ur.collection_type = 'tastings') AS tasting_count
+          FROM user_friends f
+          JOIN users u ON u.id = f.friend_id
+          WHERE f.user_id = $1 AND f.status = 'accepted'
+          ORDER BY f.created_at DESC;
+          `,
+          [userId]
+        );
+
+        return res.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          email: r.email || '',
+          avatarUrl: r.avatar_url || undefined,
+          beerCount: Number(r.beer_count) || 0,
+          tastingCount: Number(r.tasting_count) || 0,
+          connectedAt: new Date(r.created_at).toISOString(),
+        }));
+      } catch (err) {
+        console.warn('[Database] getFriendsForUser fout:', err);
+      }
+    }
+
+    const friendIds = Array.from(this.memoryFriends.get(userId) || []);
+    const list = [];
+    for (const fid of friendIds) {
+      const fUser = await this.getUserById(fid);
+      if (fUser) {
+        const recs = await this.getUserRecords(fid);
+        list.push({
+          id: fUser.id,
+          name: fUser.name,
+          email: fUser.email,
+          avatarUrl: fUser.avatarUrl,
+          beerCount: recs.beers.length,
+          tastingCount: recs.tastings.length,
+          connectedAt: new Date().toISOString(),
+        });
+      }
+    }
+    return list;
+  }
+
+  public async removeFriendship(userId: string, friendId: string): Promise<boolean> {
+    await this.init();
+    if (!isValidServerId(userId) || !isValidServerId(friendId)) return false;
+
+    if (this.pool) {
+      try {
+        await this.pool.query(
+          `DELETE FROM user_friends WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)`,
+          [userId, friendId]
+        );
+      } catch {
+        // ignore
+      }
+    }
+
+    this.memoryFriends.get(userId)?.delete(friendId);
+    this.memoryFriends.get(friendId)?.delete(userId);
+    return true;
+  }
+
+  public async getFriendRecords(
+    userId: string,
+    friendId: string
+  ): Promise<{ friend: DbUserRecord; records: any } | null> {
+    await this.init();
+    if (!isValidServerId(userId) || !isValidServerId(friendId)) return null;
+
+    const friendUser = await this.getUserById(friendId);
+    if (!friendUser) return null;
+
+    let isFriend = false;
+    if (this.pool) {
+      const check = await this.pool.query(
+        `SELECT 1 FROM user_friends WHERE user_id = $1 AND friend_id = $2 AND status = 'accepted' LIMIT 1`,
+        [userId, friendId]
+      );
+      isFriend = check.rows.length > 0;
+    } else {
+      isFriend = Boolean(this.memoryFriends.get(userId)?.has(friendId));
+    }
+
+    const isOwner = isVerifiedAdminEmail(friendUser.email, true);
+    if (!isFriend && !isOwner && userId !== friendId) {
+      return null;
+    }
+
+    const records = await this.getUserRecords(friendId);
+    return {
+      friend: friendUser,
+      records,
     };
   }
 
@@ -1115,6 +1271,35 @@ class CentralDatabaseClient {
 
     await this.consolidateDuplicateDatabaseUsers();
     await this.repairCrossAccountContamination();
+  }
+
+  public async getSystemSetting(key: string, defaultValue = ''): Promise<string> {
+    await this.init();
+    if (this.pool) {
+      try {
+        const res = await this.pool.query('SELECT value FROM system_settings WHERE key = $1', [key]);
+        if (res.rows.length > 0) return res.rows[0].value || defaultValue;
+      } catch {
+        // Fallback
+      }
+    }
+    return this.memorySystemSettings.get(key) ?? defaultValue;
+  }
+
+  public async setSystemSetting(key: string, value: string): Promise<void> {
+    await this.init();
+    if (this.pool) {
+      try {
+        await this.pool.query(
+          `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+          [key, value]
+        );
+      } catch {
+        // Fallback
+      }
+    }
+    this.memorySystemSettings.set(key, value);
   }
 }
 

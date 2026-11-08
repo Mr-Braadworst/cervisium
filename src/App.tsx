@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserAccount, Category, Beer, Tasting, BeerGlass, PubGlassDeal, UserSettings } from './types';
+import { UserAccount, FriendUser, Category, Beer, Tasting, BeerGlass, PubGlassDeal, UserSettings } from './types';
+import { FriendsView } from './components/FriendsView';
+import { fetchFriendRecords, acceptFriendInvite } from './services/friendsService';
 import {
   getActiveUser,
   setActiveUser as persistActiveUser,
@@ -34,6 +36,7 @@ import {
   syncUserWithServerDatabase,
   pushUserRecordsToServerNow,
   clearServerCollectionsNow,
+  registerKnownUserLocally,
 } from './services/storage';
 
 import {
@@ -87,7 +90,7 @@ import { isSuperAdmin, AdminUserSummary } from './services/adminService';
 import { setLanguagePreference } from './utils/i18n';
 import { getCanonicalUserIdForEmail } from './utils/security';
 import { APP_VERSION, getFormattedVersionDate } from './version';
-import { Eye, ShieldCheck, ArrowLeft } from 'lucide-react';
+import { Eye, ShieldCheck, ArrowLeft, Users } from 'lucide-react';
 
 function isClientFirestoreEnabled(): boolean {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
@@ -150,6 +153,58 @@ export default function App() {
   const [editingTasting, setEditingTasting] = useState<Tasting | null>(null);
   const [prefillTastingDraft, setPrefillTastingDraft] = useState<Partial<Tasting> | null>(null);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+
+  // Vrienden-weergave modus (wanneer je de bierlijst van een vriend bekijkt)
+  const [viewingFriend, setViewingFriend] = useState<{
+    friend: { id: string; name: string; email: string; avatarUrl?: string };
+    beers: Beer[];
+    tastings: Tasting[];
+    categories: Category[];
+    glasses: BeerGlass[];
+  } | null>(null);
+  const [friendNotice, setFriendNotice] = useState<string | null>(null);
+
+  // Verwerk inkomende uitnodigingslink in de URL (?invite=... of ?friend=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const inviteCode = params.get('invite') || params.get('friend');
+
+    if (inviteCode) {
+      if (activeUser) {
+        acceptFriendInvite(inviteCode).then((res) => {
+          if (res.success) {
+            setFriendNotice(res.message);
+            setActiveTab('friends');
+          } else if (res.message) {
+            setFriendNotice(res.message);
+          }
+          window.history.replaceState({}, document.title, window.location.pathname);
+        });
+      } else {
+        try {
+          localStorage.setItem('bierlog_pending_invite', inviteCode);
+        } catch {}
+      }
+    }
+  }, [activeUser]);
+
+  // Verwerk bewaarde uitnodiging nadat gebruiker is ingelogd
+  useEffect(() => {
+    if (!activeUser) return;
+    try {
+      const pending = localStorage.getItem('bierlog_pending_invite');
+      if (pending) {
+        localStorage.removeItem('bierlog_pending_invite');
+        acceptFriendInvite(pending).then((res) => {
+          if (res.success) {
+            setFriendNotice(res.message);
+            setActiveTab('friends');
+          }
+        });
+      }
+    } catch {}
+  }, [activeUser]);
 
   // Sync state when active user changes
   const reloadDataForUser = useCallback((user: UserAccount) => {
@@ -484,6 +539,7 @@ export default function App() {
   // Admin: Bekijk de volledige website zoals een geselecteerde gebruiker deze ziet
   const handleViewAsUser = (summary: AdminUserSummary) => {
     if (!isSuperAdmin(authenticatedUser)) return;
+    registerKnownUserLocally(summary.user);
     setActiveUserState(summary.user);
     setCategories(summary.categories);
     setBeers(summary.beers);
@@ -861,16 +917,18 @@ export default function App() {
     setTastings(sampleTastings);
   };
 
-  // Clear all data
+  // Clear all data (uitsluitend voor het huidige actieve account)
   const handleClearAllData = () => {
     if (!activeUser) return;
     saveCategories(activeUser.id, []);
     saveBeers(activeUser.id, []);
     saveTastings(activeUser.id, []);
-    void clearServerCollectionsNow();
+    saveGlasses(activeUser.id, []);
+    void clearServerCollectionsNow(activeUser.id);
     setCategories([]);
     setBeers([]);
     setTastings([]);
+    setGlasses([]);
     setSelectedBeer(null);
   };
 
@@ -881,15 +939,17 @@ export default function App() {
     setUserSettings(saved);
   };
 
-  // Verwerk geïmporteerde back-up (inclusief alle geüploade foto's) direct in de lokale server-database
+  // Verwerk geïmporteerde back-up (inclusief alle geüploade foto's) direct in de lokale server-database voor activeUser
   const handleDataImported = async (importedData?: ImportedBackupPayload) => {
     if (!activeUser) return;
+    registerKnownUserLocally(activeUser);
+    const meta = { email: activeUser.email, name: activeUser.name };
     if (importedData) {
       setCategories(importedData.categories);
       setBeers(importedData.beers);
       setTastings(importedData.tastings);
       setGlasses(importedData.glasses);
-      await pushUserRecordsToServerNow(activeUser.id);
+      await pushUserRecordsToServerNow(activeUser.id, meta);
       if (isClientFirestoreEnabled()) {
         try {
           await syncImportedDataToFirestore(activeUser.id, importedData);
@@ -899,7 +959,7 @@ export default function App() {
       }
     } else {
       reloadDataForUser(activeUser);
-      await pushUserRecordsToServerNow(activeUser.id);
+      await pushUserRecordsToServerNow(activeUser.id, meta);
     }
   };
 
@@ -913,10 +973,33 @@ export default function App() {
     );
   }
 
+  const displayBeers = viewingFriend ? viewingFriend.beers : beers;
+  const displayTastings = viewingFriend ? viewingFriend.tastings : tastings;
+  const displayCategories = viewingFriend ? viewingFriend.categories : categories;
+  const displayGlasses = viewingFriend ? viewingFriend.glasses : glasses;
+
+  const handleViewFriendList = async (friend: FriendUser) => {
+    try {
+      const recs = await fetchFriendRecords(friend.id);
+      if (recs) {
+        setViewingFriend({
+          friend,
+          beers: recs.beers || [],
+          tastings: recs.tastings || [],
+          categories: recs.categories || [],
+          glasses: recs.glasses || [],
+        });
+        setActiveTab('list');
+      }
+    } catch (e) {
+      console.error('Fout bij laden van vriendcollectie:', e);
+    }
+  };
+
   // Category lookup for selected beer
-  const selectedBeerCategory = categories.find((c) => c.id === selectedBeer?.categoryId);
+  const selectedBeerCategory = displayCategories.find((c) => c.id === selectedBeer?.categoryId);
   const selectedBeerTastings = selectedBeer
-    ? tastings.filter((t) => t.beerId === selectedBeer.id)
+    ? displayTastings.filter((t) => t.beerId === selectedBeer.id)
     : [];
 
   const isOwnerAdmin = isSuperAdmin(authenticatedUser || activeUser);
@@ -963,6 +1046,40 @@ export default function App() {
         </div>
       )}
 
+      {/* Meldingen banner voor vrienduitnodiging */}
+      {friendNotice && (
+        <div className="bg-amber-500/20 border-b border-amber-500/30 text-amber-200 px-4 py-2.5 flex items-center justify-between text-xs sm:text-sm">
+          <span>{friendNotice}</span>
+          <button
+            type="button"
+            onClick={() => setFriendNotice(null)}
+            className="text-amber-300 hover:text-white font-bold ml-4"
+          >
+            Sluiten &times;
+          </button>
+        </div>
+      )}
+
+      {/* Viewing Friend Banner */}
+      {viewingFriend && (
+        <div className="bg-zinc-900 border-b border-amber-500/40 text-amber-300 px-4 py-2.5 flex items-center justify-between text-xs sm:text-sm shadow-md">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-amber-400" />
+            <span>
+              Je bekijkt de biercollectie van <strong>{viewingFriend.friend.name}</strong> ({viewingFriend.beers.length} bieren &bull; {viewingFriend.tastings.length} proeverijen)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setViewingFriend(null)}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Terug naar mijn eigen lijst
+          </button>
+        </div>
+      )}
+
       {/* Navigation */}
       <Navbar
         activeTab={activeTab}
@@ -990,9 +1107,9 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardView
             activeUser={activeUser}
-            beers={beers}
-            tastings={tastings}
-            categories={categories}
+            beers={displayBeers}
+            tastings={displayTastings}
+            categories={displayCategories}
             onSelectBeer={(beer) => setSelectedBeer(beer)}
             onAddNewBeer={() => {
               setEditingBeer(null);
@@ -1004,17 +1121,19 @@ export default function App() {
 
         {activeTab === 'list' && (
           <BeerListView
-            beers={beers}
-            tastings={tastings}
-            categories={categories}
+            beers={displayBeers}
+            tastings={displayTastings}
+            categories={displayCategories}
             onSelectBeer={(beer) => setSelectedBeer(beer)}
             onEditBeer={(beer) => {
+              if (viewingFriend) return;
               setEditingBeer(beer);
               setBeerModalOpen(true);
             }}
             onDeleteBeer={handleDeleteBeer}
             onToggleFavorite={handleToggleFavorite}
             onAddNewBeer={() => {
+              if (viewingFriend) return;
               setEditingBeer(null);
               setBeerModalOpen(true);
             }}
@@ -1024,12 +1143,13 @@ export default function App() {
 
         {activeTab === 'top' && (
           <TopRankingsView
-            beers={beers}
-            tastings={tastings}
-            categories={categories}
+            beers={displayBeers}
+            tastings={displayTastings}
+            categories={displayCategories}
             onSelectBeer={(beer) => setSelectedBeer(beer)}
             onToggleFavorite={handleToggleFavorite}
             onAddNewBeer={() => {
+              if (viewingFriend) return;
               setEditingBeer(null);
               setBeerModalOpen(true);
             }}
@@ -1038,9 +1158,9 @@ export default function App() {
 
         {activeTab === 'categories' && (
           <CategoriesView
-            categories={categories}
-            beers={beers}
-            tastings={tastings}
+            categories={displayCategories}
+            beers={displayBeers}
+            tastings={displayTastings}
             onAddCategory={handleAddCategory}
             onUpdateCategory={handleUpdateCategory}
             onDeleteCategory={handleDeleteCategory}
@@ -1051,10 +1171,17 @@ export default function App() {
 
         {activeTab === 'glasses' && (
           <BeerGlassesView
-            glasses={glasses}
+            glasses={displayGlasses}
             onAddGlass={handleAddGlass}
             onUpdateGlass={handleUpdateGlass}
             onDeleteGlass={handleDeleteGlass}
+          />
+        )}
+
+        {activeTab === 'friends' && (
+          <FriendsView
+            activeUser={activeUser}
+            onViewFriendList={handleViewFriendList}
           />
         )}
 

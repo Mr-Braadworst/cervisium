@@ -8,6 +8,16 @@ export interface UserAccount {
   createdAt: string;
 }
 
+export interface FriendUser {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  beerCount: number;
+  tastingCount: number;
+  connectedAt: string;
+}
+
 export interface Category {
   id: string;
   name: string;

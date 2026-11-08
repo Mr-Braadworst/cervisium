@@ -629,8 +629,53 @@ async function startServer() {
     try {
       const authUser = req.authUser!;
       const body = (req.body || {}) as Record<string, unknown>;
+      const authProfile = authUser.email
+        ? await centralDb.getUserByEmail(authUser.email)
+        : await centralDb.getUserById(authUser.uid);
+      const effectiveAuthUid = authProfile?.id || authUser.uid;
+      const isAdmin =
+        authUser.role === 'admin' ||
+        authProfile?.role === 'admin' ||
+        isVerifiedAdminEmail(authUser.email, true);
+
+      const requestedTargetId =
+        typeof body.targetUserId === 'string' ? body.targetUserId.trim() : '';
+
+      let targetUid = effectiveAuthUid;
+      let syncMeta: { email?: string; name?: string; role?: 'admin' | 'user' } = {
+        email: authUser.email,
+        name: authUser.name,
+        role: authUser.role,
+      };
+
+      // Als er voor een andere gebruiker gesynchroniseerd wordt (bijv. Admin "Bekijk als gebruiker"):
+      // sta dit uitsluitend toe voor de Admin en geef NOOIT het admin e-mailadres mee aan dat andere account!
+      if (
+        requestedTargetId &&
+        requestedTargetId !== authUser.uid &&
+        requestedTargetId !== effectiveAuthUid
+      ) {
+        if (!isAdmin) {
+          res.status(403).json({
+            error: 'Geen rechten om gegevens van een andere gebruiker te synchroniseren.',
+          });
+          return;
+        }
+        targetUid = requestedTargetId;
+        const targetProfile = await centralDb.getUserById(requestedTargetId);
+        const targetEmailFromBody =
+          typeof body.targetUserEmail === 'string' ? body.targetUserEmail.trim() : '';
+        const targetNameFromBody =
+          typeof body.targetUserName === 'string' ? body.targetUserName.trim() : '';
+        syncMeta = {
+          email: targetProfile?.email || targetEmailFromBody || undefined,
+          name: targetProfile?.name || targetNameFromBody || 'Bierliefhebber',
+          role: targetProfile?.role || 'user',
+        };
+      }
+
       await centralDb.syncUserCollections(
-        authUser.uid,
+        targetUid,
         {
           categories: Array.isArray(body.categories) ? body.categories : undefined,
           beers: Array.isArray(body.beers) ? body.beers : undefined,
@@ -639,11 +684,7 @@ async function startServer() {
           pubDeals: Array.isArray(body.pubDeals) ? body.pubDeals : undefined,
           sessions: Array.isArray(body.sessions) ? body.sessions : undefined,
         },
-        {
-          email: authUser.email,
-          name: authUser.name,
-          role: authUser.role,
-        }
+        syncMeta
       );
       res.json({ ok: true });
     } catch (err) {
@@ -660,7 +701,27 @@ async function startServer() {
         ? await centralDb.getUserByEmail(authUser.email)
         : await centralDb.getUserById(authUser.uid);
       const effectiveUid = profile?.id || authUser.uid;
-      await centralDb.deleteUserRecord(effectiveUid, req.params.type, req.params.id);
+      const isAdmin =
+        authUser.role === 'admin' ||
+        profile?.role === 'admin' ||
+        isVerifiedAdminEmail(authUser.email, true);
+
+      const requestedTargetId =
+        typeof req.query.targetUserId === 'string' ? req.query.targetUserId.trim() : '';
+      let targetUid = effectiveUid;
+      if (
+        requestedTargetId &&
+        requestedTargetId !== authUser.uid &&
+        requestedTargetId !== effectiveUid
+      ) {
+        if (!isAdmin) {
+          res.status(403).json({ error: 'Geen rechten om dit item te verwijderen.' });
+          return;
+        }
+        targetUid = requestedTargetId;
+      }
+
+      await centralDb.deleteUserRecord(targetUid, req.params.type, req.params.id);
       res.json({ ok: true });
     } catch {
       res.status(400).json({ error: 'Kon item niet verwijderen uit database.' });
@@ -674,10 +735,169 @@ async function startServer() {
         ? await centralDb.getUserByEmail(authUser.email)
         : await centralDb.getUserById(authUser.uid);
       const effectiveUid = profile?.id || authUser.uid;
-      await centralDb.clearUserCollections(effectiveUid);
+      const isAdmin =
+        authUser.role === 'admin' ||
+        profile?.role === 'admin' ||
+        isVerifiedAdminEmail(authUser.email, true);
+
+      const requestedTargetId =
+        typeof req.query.targetUserId === 'string' ? req.query.targetUserId.trim() : '';
+      let targetUid = effectiveUid;
+      if (
+        requestedTargetId &&
+        requestedTargetId !== authUser.uid &&
+        requestedTargetId !== effectiveUid
+      ) {
+        if (!isAdmin) {
+          res.status(403).json({ error: 'Geen rechten om gegevens van een ander te wissen.' });
+          return;
+        }
+        targetUid = requestedTargetId;
+      }
+
+      await centralDb.clearUserCollections(targetUid);
       res.json({ ok: true });
     } catch {
       res.status(400).json({ error: 'Kon gegevens niet wissen uit database.' });
+    }
+  });
+
+  // ==========================================================================
+  // 3A. VRIENDEN & DELEN API
+  // ==========================================================================
+  app.get('/api/friends', requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const profile = authUser.email
+        ? await centralDb.getUserByEmail(authUser.email)
+        : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      const friends = await centralDb.getFriendsForUser(effectiveUid);
+      res.json({ friends });
+    } catch {
+      res.status(500).json({ error: 'Kon vriendenlijst niet ophalen.' });
+    }
+  });
+
+  app.post('/api/friends/accept', requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const profile = authUser.email
+        ? await centralDb.getUserByEmail(authUser.email)
+        : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      const { inviteCode, friendId } = (req.body || {}) as {
+        inviteCode?: string;
+        friendId?: string;
+      };
+      const target = (inviteCode || friendId || '').trim();
+      if (!target) {
+        res.status(400).json({ error: 'Geen uitnodiging of vriend gekozen.' });
+        return;
+      }
+      const result = await centralDb.addFriendship(effectiveUid, target);
+      if (!result.success) {
+        res.status(400).json({ error: result.message });
+        return;
+      }
+      res.json({
+        ok: true,
+        message: result.message,
+        friend: result.friend
+          ? {
+              id: result.friend.id,
+              name: result.friend.name,
+              email: result.friend.email,
+              avatarUrl: result.friend.avatarUrl,
+            }
+          : undefined,
+      });
+    } catch {
+      res.status(500).json({ error: 'Kon vriend niet toevoegen.' });
+    }
+  });
+
+  app.delete('/api/friends/:friendId', requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const profile = authUser.email
+        ? await centralDb.getUserByEmail(authUser.email)
+        : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      await centralDb.removeFriendship(effectiveUid, req.params.friendId);
+      res.json({ ok: true });
+    } catch {
+      res.status(400).json({ error: 'Kon vriend niet verwijderen.' });
+    }
+  });
+
+  app.get('/api/friends/:friendId/records', requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const profile = authUser.email
+        ? await centralDb.getUserByEmail(authUser.email)
+        : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      const data = await centralDb.getFriendRecords(effectiveUid, req.params.friendId);
+      if (!data) {
+        res.status(403).json({ error: 'Je bent nog geen vrienden met deze gebruiker.' });
+        return;
+      }
+      res.json({
+        friend: {
+          id: data.friend.id,
+          name: data.friend.name,
+          email: data.friend.email,
+          avatarUrl: data.friend.avatarUrl,
+        },
+        records: data.records,
+      });
+    } catch {
+      res.status(500).json({ error: 'Kon vrienden-collectie niet ophalen.' });
+    }
+  });
+
+  // ==========================================================================
+  // 3A.2 SYSTEEM & DOMEIN INSTELLINGEN API
+  // ==========================================================================
+  app.get('/api/system/settings', async (_req, res) => {
+    try {
+      const customDomain = await centralDb.getSystemSetting(
+        'custom_domain',
+        'https://cervisium.nl'
+      );
+      res.json({ customDomain });
+    } catch {
+      res.json({ customDomain: 'https://cervisium.nl' });
+    }
+  });
+
+  app.post('/api/system/settings', requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      if (authUser.role !== 'admin' && !isVerifiedAdminEmail(authUser.email, true)) {
+        res.status(403).json({ error: 'Alleen de beheerder kan het uitnodigingsdomein wijzigen.' });
+        return;
+      }
+
+      let { customDomain } = (req.body || {}) as { customDomain?: string };
+      customDomain = (customDomain || '').trim();
+
+      if (customDomain) {
+        if (!/^https?:\/\//i.test(customDomain)) {
+          customDomain = `https://${customDomain}`;
+        }
+        customDomain = customDomain.replace(/\/+$/, '');
+      } else {
+        customDomain = 'https://cervisium.nl';
+      }
+
+      await centralDb.setSystemSetting('custom_domain', customDomain);
+      res.json({ ok: true, customDomain });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Kon systeeminstellingen niet opslaan.',
+      });
     }
   });
 

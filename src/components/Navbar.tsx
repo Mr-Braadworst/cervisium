@@ -12,6 +12,7 @@ import {
   CupSoda,
   Sparkles,
   Settings,
+  Users,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -24,6 +25,7 @@ export type NavTab =
   | 'extras'
   | 'deals'
   | 'counter'
+  | 'friends'
   | 'settings'
   | 'admin';
 
@@ -205,6 +207,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
+            <button
+              onClick={() => setActiveTab('friends')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'friends'
+                  ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                  : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              Vrienden
+            </button>
+
             {/* Apart Instellingen-tabje dat tevoorschijn komt als je op je profiel hebt geklikt */}
             {activeTab === 'settings' && (
               <button
@@ -379,6 +393,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             Extra's
           </button>
         )}
+
+        <button
+          onClick={() => setActiveTab('friends')}
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl text-[10px] font-bold transition-colors shrink-0 ${
+            activeTab === 'friends' ? 'text-amber-400' : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Vrienden
+        </button>
 
         {activeTab === 'settings' && (
           <button

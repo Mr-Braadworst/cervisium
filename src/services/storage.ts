@@ -196,47 +196,15 @@ export function consolidateLocalAccountsForUser(targetUser: UserAccount): void {
           }))
       : [];
 
-    // Voeg lokale accounts samen die hetzelfde e-mailadres hebben óf een lokaal gastaccount zijn
+    // Voeg UITSLUITEND lokale accounts samen die exact hetzelfde geverifieerde e-mailadres hebben.
+    // Raak NOOIT losse bierlog_beers_<uid> sleutels van andere gebruikers (bijv. bekeken via Admin "Bekijk als gebruiker") aan!
     const uidsToMerge = new Set<string>();
-    const otherRealUserIds = new Set<string>();
 
     for (const u of existingUsers) {
       if (u.id === targetId) continue;
       const uEmail = !isPlaceholderUserEmail(u.email) ? u.email.trim().toLowerCase() : '';
       if (targetEmail && uEmail && uEmail === targetEmail) {
         uidsToMerge.add(u.id);
-      } else if (targetEmail && !uEmail) {
-        uidsToMerge.add(u.id);
-      } else if (uEmail) {
-        otherRealUserIds.add(u.id);
-      }
-    }
-
-    // Controleer ook op losse bierlog_beers_<uid> sleutels in localStorage die op een eerder ID stonden
-    if (targetEmail) {
-      const prefixes = [
-        'bierlog_beers_',
-        'bierlog_categories_',
-        'bierlog_tastings_',
-        'bierlog_glasses_',
-        'bierlog_sessions_',
-      ];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        for (const prefix of prefixes) {
-          if (key.startsWith(prefix)) {
-            const candidateUid = key.slice(prefix.length);
-            if (
-              candidateUid &&
-              candidateUid !== targetId &&
-              isValidEntityId(candidateUid) &&
-              !otherRealUserIds.has(candidateUid)
-            ) {
-              uidsToMerge.add(candidateUid);
-            }
-          }
-        }
       }
     }
 
@@ -331,6 +299,27 @@ export function setActiveUser(user: UserAccount | null): void {
     localStorage.setItem(ACTIVE_USER_ID_KEY, sanitizedUser.id);
   } catch (e) {
     console.warn('localStorage setActiveUser quota notice:', e);
+  }
+}
+
+export function registerKnownUserLocally(user: UserAccount): void {
+  if (!user || !isValidEntityId(user.id)) return;
+  try {
+    const users = getAllUsers();
+    const cleanEmail = sanitizeString(user.email, 180, 'gebruiker@bierlog.nl');
+    const sanitized: UserAccount = {
+      id: user.id,
+      name: sanitizeString(user.name, 100, 'Bierliefhebber'),
+      googleName: user.googleName ? sanitizeString(user.googleName, 100) : undefined,
+      email: cleanEmail,
+      role: user.role === 'admin' ? 'admin' : user.role === 'user' ? 'user' : undefined,
+      avatarUrl: sanitizeImageUrl(user.avatarUrl),
+      createdAt: sanitizeString(user.createdAt, 60, new Date().toISOString()),
+    };
+    const next = [sanitized, ...users.filter((u) => u.id !== sanitized.id)];
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore quota
   }
 }
 
@@ -480,7 +469,7 @@ export function updateCategory(userId: string, id: string, name: string, color: 
 export function deleteCategory(userId: string, id: string): void {
   const categories = getCategories(userId).filter(c => c.id !== id);
   saveCategories(userId, categories);
-  void deleteServerRecordNow('categories', id);
+  void deleteServerRecordNow(userId, 'categories', id);
 }
 
 // --- Beers & Tastings ---
@@ -655,13 +644,13 @@ export function deleteBeer(userId: string, beerId: string): void {
   saveBeers(userId, beers);
   const tastings = getTastings(userId).filter(t => t.beerId !== beerId);
   saveTastings(userId, tastings);
-  void deleteServerRecordNow('beers', beerId);
+  void deleteServerRecordNow(userId, 'beers', beerId);
 }
 
 export function deleteTasting(userId: string, tastingId: string): void {
   const tastings = getTastings(userId).filter(t => t.id !== tastingId);
   saveTastings(userId, tastings);
-  void deleteServerRecordNow('tastings', tastingId);
+  void deleteServerRecordNow(userId, 'tastings', tastingId);
 }
 
 // --- Sample Data & Utilities ---
@@ -822,8 +811,10 @@ export function importUserData(
     const MAX_ITEMS = 2500;
     let sourceContainer: Record<string, unknown> = data;
     if (Array.isArray(data.users) && data.users.length > 0) {
-      const activeUser = getActiveUser();
-      const targetEmail = activeUser?.email ? activeUser.email.trim().toLowerCase() : '';
+      const targetUserObj = getAllUsers().find((u) => u.id === userId);
+      const targetEmail = targetUserObj?.email && !isPlaceholderUserEmail(targetUserObj.email)
+        ? targetUserObj.email.trim().toLowerCase()
+        : '';
       const matchedEntry = (data.users as unknown[]).find((entry) => {
         if (!entry || typeof entry !== 'object') return false;
         const e = entry as Record<string, unknown>;
@@ -1010,7 +1001,7 @@ export function addBeerSession(userId: string, sessionData: Omit<BeerSession, 'i
 export function deleteBeerSession(userId: string, sessionId: string): void {
   const sessions = getBeerSessions(userId).filter(s => s.id !== sessionId);
   saveBeerSessions(userId, sessions);
-  void deleteServerRecordNow('sessions', sessionId);
+  void deleteServerRecordNow(userId, 'sessions', sessionId);
 }
 
 // --- Beer Glasses Management ---
@@ -1119,7 +1110,7 @@ export function updateGlass(
 export function deleteGlass(userId: string, glassId: string): void {
   const glasses = getGlasses(userId).filter(g => g.id !== glassId);
   saveGlasses(userId, glasses);
-  void deleteServerRecordNow('glasses', glassId);
+  void deleteServerRecordNow(userId, 'glasses', glassId);
 }
 
 // --- User Settings Management ---
@@ -1194,14 +1185,16 @@ export async function buildServerAuthHeaders(includeJsonContentType = true): Pro
 }
 
 export async function deleteServerRecordNow(
+  userId: string,
   collectionType: 'categories' | 'beers' | 'tastings' | 'glasses' | 'sessions',
   recordId: string
 ): Promise<boolean> {
-  if (!isValidEntityId(recordId)) return false;
+  if (!isValidEntityId(userId) || !isValidEntityId(recordId)) return false;
   try {
     const headers = await buildServerAuthHeaders(false);
+    const query = `?targetUserId=${encodeURIComponent(userId)}`;
     const res = await fetch(
-      `/api/me/records/${encodeURIComponent(collectionType)}/${encodeURIComponent(recordId)}`,
+      `/api/me/records/${encodeURIComponent(collectionType)}/${encodeURIComponent(recordId)}${query}`,
       {
         method: 'DELETE',
         credentials: 'include',
@@ -1214,10 +1207,19 @@ export async function deleteServerRecordNow(
   }
 }
 
-export async function clearServerCollectionsNow(): Promise<boolean> {
+export async function clearServerCollectionsNow(userId?: string): Promise<boolean> {
   try {
+    if (userId) {
+      const existingTimer = syncTimers.get(userId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        syncTimers.delete(userId);
+      }
+    }
     const headers = await buildServerAuthHeaders(false);
-    const res = await fetch('/api/me/records', {
+    const query =
+      userId && isValidEntityId(userId) ? `?targetUserId=${encodeURIComponent(userId)}` : '';
+    const res = await fetch(`/api/me/records${query}`, {
       method: 'DELETE',
       credentials: 'include',
       headers,
@@ -1228,11 +1230,23 @@ export async function clearServerCollectionsNow(): Promise<boolean> {
   }
 }
 
-export async function pushUserRecordsToServerNow(userId: string): Promise<boolean> {
+export async function pushUserRecordsToServerNow(
+  userId: string,
+  userMeta?: { email?: string; name?: string }
+): Promise<boolean> {
   if (!isValidEntityId(userId)) return false;
   try {
+    const existingTimer = syncTimers.get(userId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      syncTimers.delete(userId);
+    }
+    const knownUser = getAllUsers().find((u) => u.id === userId);
     const headers = await buildServerAuthHeaders(true);
     const payload = JSON.stringify({
+      targetUserId: userId,
+      targetUserEmail: userMeta?.email || knownUser?.email || undefined,
+      targetUserName: userMeta?.name || knownUser?.name || undefined,
       categories: getCategories(userId),
       beers: getBeers(userId),
       tastings: getTastings(userId),
@@ -1274,8 +1288,6 @@ export async function pushUserRecordsToServerNow(userId: string): Promise<boolea
 
 export function queueServerDatabaseSync(userId: string): void {
   if (!isValidEntityId(userId)) return;
-  const active = getActiveUser();
-  if (!active || active.id !== userId) return;
 
   const existingTimer = syncTimers.get(userId);
   if (existingTimer) clearTimeout(existingTimer);
