@@ -166,109 +166,20 @@ class CentralDatabaseClient {
   }
 
   /**
-   * Verwijdert automatisch bieren, proefnotities, glazen en ongebruikte categorieën
-   * uit het admin-account als diezelfde record-ID's daadwerkelijk toebehoren aan een andere gebruiker
-   * (herstelt eerdere cross-account samenvoeging vanuit localStorage).
+   * Zorgt ervoor dat uitsluitend geverifieerde beheerder-accounts de rol 'admin' hebben
+   * zonder ooit bieren, proefnotities, glazen of categorieën van de eigenaar te wissen.
    */
   public async repairCrossAccountContamination(): Promise<void> {
     if (!this.pool) {
-      const adminUids: string[] = [];
-      const nonAdminUids: string[] = [];
-      for (const [uid, u] of this.memoryUsers.entries()) {
-        if (u.role === 'admin' || isVerifiedAdminEmail(u.email, true)) {
-          adminUids.push(uid);
-        } else {
-          nonAdminUids.push(uid);
+      for (const [_uid, u] of this.memoryUsers.entries()) {
+        if (u.role === 'admin' && !isVerifiedAdminEmail(u.email, true)) {
+          u.role = 'user';
         }
-      }
-      if (adminUids.length === 0 || nonAdminUids.length === 0) return;
-
-      const foreignBeerIds = new Set<string>();
-      const foreignTastingIds = new Set<string>();
-      const foreignGlassIds = new Set<string>();
-      const foreignCatIds = new Set<string>();
-
-      for (const otherUid of nonAdminUids) {
-        const b = this.memoryCollections.get(otherUid);
-        if (!b) continue;
-        b.beers.forEach((_v, k) => foreignBeerIds.add(k));
-        b.tastings.forEach((_v, k) => foreignTastingIds.add(k));
-        b.glasses.forEach((_v, k) => foreignGlassIds.add(k));
-        b.categories.forEach((_v, k) => foreignCatIds.add(k));
-      }
-
-      for (const adminUid of adminUids) {
-        const adminBucket = this.memoryCollections.get(adminUid);
-        if (!adminBucket) continue;
-        foreignBeerIds.forEach((id) => adminBucket.beers.delete(id));
-        foreignTastingIds.forEach((id) => adminBucket.tastings.delete(id));
-        foreignGlassIds.forEach((id) => adminBucket.glasses.delete(id));
-        adminBucket.tastings.forEach((t, tid) => {
-          if (typeof t.beerId === 'string' && foreignBeerIds.has(t.beerId)) {
-            adminBucket.tastings.delete(tid);
-          }
-        });
-        const usedAdminCatIds = new Set<string>();
-        adminBucket.beers.forEach((b) => {
-          if (typeof b.categoryId === 'string') usedAdminCatIds.add(b.categoryId);
-        });
-        foreignCatIds.forEach((cid) => {
-          if (!usedAdminCatIds.has(cid)) {
-            adminBucket.categories.delete(cid);
-          }
-        });
       }
       return;
     }
 
     try {
-      // 1. Verwijder bieren, glazen en sessies uit het admin-account die óók onder een andere gebruiker staan
-      await this.pool.query(`
-        DELETE FROM user_records AS admin_rec
-        USING user_records AS other_rec, users AS u_admin
-        WHERE admin_rec.collection_type IN ('beers', 'glasses', 'sessions')
-          AND admin_rec.collection_type = other_rec.collection_type
-          AND admin_rec.id = other_rec.id
-          AND admin_rec.user_id <> other_rec.user_id
-          AND admin_rec.user_id = u_admin.id
-          AND u_admin.role = 'admin';
-      `);
-
-      // 2. Verwijder proefnotities uit het admin-account die óók onder een andere gebruiker staan
-      //    óf verwijzen naar een bier van een andere gebruiker
-      await this.pool.query(`
-        DELETE FROM user_records AS admin_tast
-        USING user_records AS other_rec, users AS u_admin
-        WHERE admin_tast.collection_type = 'tastings'
-          AND (
-            (other_rec.collection_type = 'tastings' AND admin_tast.id = other_rec.id)
-            OR (other_rec.collection_type = 'beers' AND (admin_tast.payload->>'beerId') = other_rec.id)
-          )
-          AND admin_tast.user_id <> other_rec.user_id
-          AND admin_tast.user_id = u_admin.id
-          AND u_admin.role = 'admin';
-      `);
-
-      // 3. Verwijder categorieën uit het admin-account die bij een andere gebruiker horen
-      //    én niet gebruikt worden door een eigen bier van de admin
-      await this.pool.query(`
-        DELETE FROM user_records AS admin_cat
-        USING user_records AS other_cat, users AS u_admin
-        WHERE admin_cat.collection_type = 'categories'
-          AND other_cat.collection_type = 'categories'
-          AND admin_cat.id = other_cat.id
-          AND admin_cat.user_id <> other_cat.user_id
-          AND admin_cat.user_id = u_admin.id
-          AND u_admin.role = 'admin'
-          AND NOT EXISTS (
-            SELECT 1 FROM user_records AS own_beer
-            WHERE own_beer.user_id = admin_cat.user_id
-              AND own_beer.collection_type = 'beers'
-              AND (own_beer.payload->>'categoryId') = admin_cat.id
-          );
-      `);
-
-      // 4. Zorg dat geen enkel account in de database role='admin' heeft tenzij het e-mailadres geverifieerd is als eigenaar
       const allAdminsRes = await this.pool.query(
         "SELECT id, email FROM users WHERE role = 'admin'"
       );
@@ -278,65 +189,48 @@ class CentralDatabaseClient {
         }
       }
     } catch (err) {
-      console.warn('[Database] Herstel cross-account isolatie melding:', err instanceof Error ? err.message : err);
+      console.warn('[Database] Controle admin-rol melding:', err instanceof Error ? err.message : err);
     }
   }
 
-  /**
-   * Geeft alle record-ID's (bieren, proefnotities, glazen) terug die aan ANDERE gebruikers toebehoren,
-   * zodat de browser-cache (localStorage) van een ingelogde gebruiker direct vervuilde records kan wissen.
-   */
-  public async getForeignRecordIds(userId: string): Promise<string[]> {
+  public async getForeignRecordIds(_userId: string): Promise<string[]> {
     await this.init();
-    if (!isValidServerId(userId)) return [];
-
-    if (this.pool) {
-      try {
-        const res = await this.pool.query(
-          `
-          SELECT DISTINCT id
-          FROM user_records
-          WHERE user_id <> $1
-            AND collection_type IN ('beers', 'tastings', 'glasses')
-          `,
-          [userId]
-        );
-        return res.rows.map((r) => String(r.id));
-      } catch {
-        return [];
-      }
-    }
-
-    const out = new Set<string>();
-    for (const [uid, bucket] of this.memoryCollections.entries()) {
-      if (uid === userId) continue;
-      bucket.beers.forEach((_v, k) => out.add(k));
-      bucket.tastings.forEach((_v, k) => out.add(k));
-      bucket.glasses.forEach((_v, k) => out.add(k));
-    }
-    return Array.from(out);
+    return [];
   }
 
   /**
-   * Voegt eventuele dubbele accounts met exact hetzelfde geverifieerde e-mailadres
-   * (bijv. een oud 'usr_...' account en een nieuw Firebase UID account van dezelfde persoon)
-   * samen. Voegt NOOIT verschillende gebruikers of accounts zonder e-mailadres samen.
+   * Voegt eventuele dubbele accounts met exact hetzelfde e-mailadres
+   * (bijv. een 'usr_...' account op http://212.227.151.8:3000 en een Firebase/Google UID op https://cervisium.nl)
+   * én eventuele losse lokale gast-accounts (zonder e-mailadres) samen onder het hoofdaccount.
    */
   public async consolidateDuplicateDatabaseUsers(): Promise<void> {
     if (!this.pool) {
-      // Memory store deduplicatie uitsluitend op exact hetzelfde niet-lege e-mailadres
       const byEmail = new Map<string, string>();
+      let primaryOwnerUid: string | null = null;
+
       for (const [uid, u] of Array.from(this.memoryUsers.entries())) {
         const cleanEmail = u.email.trim().toLowerCase();
         if (!isPlaceholderEmailValue(cleanEmail)) {
+          if (isVerifiedAdminEmail(cleanEmail, true) || !primaryOwnerUid) {
+            primaryOwnerUid = uid;
+          }
           const existingUid = byEmail.get(cleanEmail);
           if (existingUid && existingUid !== uid) {
             const keepUid = uid.startsWith('usr_') ? existingUid : uid;
             const dropUid = keepUid === uid ? existingUid : uid;
             this.mergeMemoryUserInto(dropUid, keepUid);
             byEmail.set(cleanEmail, keepUid);
+            if (primaryOwnerUid === dropUid) primaryOwnerUid = keepUid;
           } else {
             byEmail.set(cleanEmail, uid);
+          }
+        }
+      }
+
+      if (primaryOwnerUid) {
+        for (const [uid, u] of Array.from(this.memoryUsers.entries())) {
+          if (uid !== primaryOwnerUid && isPlaceholderEmailValue(u.email)) {
+            this.mergeMemoryUserInto(uid, primaryOwnerUid);
           }
         }
       }
@@ -349,18 +243,37 @@ class CentralDatabaseClient {
       if (rows.length <= 1) return;
 
       const byEmail = new Map<string, any>();
+      let primaryOwnerRow: any = null;
 
       for (const row of rows) {
         const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
         if (!isPlaceholderEmailValue(email)) {
           const prev = byEmail.get(email);
           if (prev && prev.id !== row.id) {
-            const keepRow = String(prev.id).startsWith('usr_') && !String(row.id).startsWith('usr_') ? row : prev;
+            const keepRow =
+              String(prev.id).startsWith('usr_') && !String(row.id).startsWith('usr_') ? row : prev;
             const dropRow = keepRow.id === prev.id ? row : prev;
             await this.mergePostgresUserInto(dropRow.id, keepRow.id);
             byEmail.set(email, keepRow);
+            if (isVerifiedAdminEmail(email, true) || !primaryOwnerRow) {
+              primaryOwnerRow = keepRow;
+            }
           } else {
             byEmail.set(email, row);
+            if (isVerifiedAdminEmail(email, true) || !primaryOwnerRow) {
+              primaryOwnerRow = row;
+            }
+          }
+        }
+      }
+
+      // Koppel ook eventuele wees-/gast-accounts (waar email leeg of gebruiker@bierlog.nl is)
+      // aan het eigenaar-account zodat bieren aangemaakt op IP:3000 nooit achterblijven op een gast-ID
+      if (primaryOwnerRow) {
+        for (const row of rows) {
+          const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
+          if (row.id !== primaryOwnerRow.id && isPlaceholderEmailValue(email)) {
+            await this.mergePostgresUserInto(row.id, primaryOwnerRow.id);
           }
         }
       }
@@ -384,9 +297,13 @@ class CentralDatabaseClient {
       ];
       for (const col of cols) {
         sourceBucket[col].forEach((val, key) => {
-          if (!targetBucket[col].has(key)) {
-            targetBucket[col].set(key, { ...val, userId: targetUid });
-          }
+          const existing = targetBucket[col].get(key);
+          targetBucket[col].set(key, {
+            ...(existing || {}),
+            ...val,
+            photoUrl: val.photoUrl || existing?.photoUrl,
+            userId: targetUid,
+          });
         });
       }
       this.memoryCollections.delete(sourceUid);
@@ -412,14 +329,20 @@ class CentralDatabaseClient {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      // Verplaats alle records van sourceUid naar targetUid zonder duplicaten te overschrijven
+      // Verplaats alle records van sourceUid naar targetUid en behoud foto's indien aanwezig
       await client.query(
         `
         INSERT INTO user_records (id, user_id, collection_type, payload, updated_at)
         SELECT id, $2, collection_type, jsonb_set(payload, '{userId}', to_jsonb($2::text), true), updated_at
         FROM user_records
         WHERE user_id = $1
-        ON CONFLICT (user_id, collection_type, id) DO NOTHING;
+        ON CONFLICT (user_id, collection_type, id) DO UPDATE SET
+          payload = CASE
+            WHEN (user_records.payload->>'photoUrl') IS NOT NULL AND (EXCLUDED.payload->>'photoUrl') IS NULL
+            THEN jsonb_set(EXCLUDED.payload, '{photoUrl}', user_records.payload->'photoUrl', true)
+            ELSE EXCLUDED.payload
+          END,
+          updated_at = NOW();
         `,
         [sourceUid, targetUid]
       );
@@ -513,9 +436,14 @@ class CentralDatabaseClient {
         let oldIdsToMerge: string[] = [];
 
         if (safeEmail) {
+          const isOwner = isVerifiedAdminEmail(safeEmail, true);
           const emailCheck = await client.query(
-            'SELECT * FROM users WHERE LOWER(email) = $1',
-            [safeEmail]
+            `
+            SELECT * FROM users
+            WHERE LOWER(email) = $1
+               OR ($2::boolean = true AND (email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl'))
+            `,
+            [safeEmail, isOwner]
           );
           for (const existingRow of emailCheck.rows) {
             if (existingRow.id !== safeId) {
@@ -594,7 +522,11 @@ class CentralDatabaseClient {
             FROM user_records
             WHERE user_id = $1
             ON CONFLICT (user_id, collection_type, id) DO UPDATE SET
-              payload = EXCLUDED.payload,
+              payload = CASE
+                WHEN (user_records.payload->>'photoUrl') IS NOT NULL AND (EXCLUDED.payload->>'photoUrl') IS NULL
+                THEN jsonb_set(EXCLUDED.payload, '{photoUrl}', user_records.payload->'photoUrl', true)
+                ELSE EXCLUDED.payload
+              END,
               updated_at = NOW();
             `,
             [oldId, safeId]
@@ -626,10 +558,15 @@ class CentralDatabaseClient {
       }
     }
 
-    // Memory fallback: controleer ook of er al een ander account met hetzelfde e-mailadres bestaat
+    // Memory fallback: controleer ook of er al een ander account met hetzelfde e-mailadres (of gastaccount voor eigenaar) bestaat
     if (safeEmail) {
+      const isOwner = isVerifiedAdminEmail(safeEmail, true);
       for (const [existingUid, existingUser] of Array.from(this.memoryUsers.entries())) {
-        if (existingUid !== safeId && existingUser.email.toLowerCase() === safeEmail) {
+        if (
+          existingUid !== safeId &&
+          (existingUser.email.toLowerCase() === safeEmail ||
+            (isOwner && isPlaceholderEmailValue(existingUser.email)))
+        ) {
           this.mergeMemoryUserInto(existingUid, safeId);
         }
       }
@@ -996,7 +933,11 @@ class CentralDatabaseClient {
           INSERT INTO user_records (id, user_id, collection_type, payload, updated_at)
           VALUES ($1, $2, $3, $4::jsonb, NOW())
           ON CONFLICT (user_id, collection_type, id) DO UPDATE SET
-            payload = EXCLUDED.payload,
+            payload = CASE
+              WHEN (user_records.payload->>'photoUrl') IS NOT NULL AND (EXCLUDED.payload->>'photoUrl') IS NULL
+              THEN jsonb_set(EXCLUDED.payload, '{photoUrl}', user_records.payload->'photoUrl', true)
+              ELSE EXCLUDED.payload
+            END,
             updated_at = NOW();
           `,
           [recordId, userId, collectionType, JSON.stringify(cleanPayload)]
@@ -1010,14 +951,80 @@ class CentralDatabaseClient {
     if (skipDuplicates && map.has(recordId)) {
       return false;
     }
+    const existing = map.get(recordId);
+    if (existing && existing.photoUrl && !cleanPayload.photoUrl) {
+      cleanPayload.photoUrl = existing.photoUrl;
+    }
     map.set(recordId, cleanPayload);
     return true;
   }
 
+  public async deleteUserRecord(
+    userId: string,
+    collectionType: string,
+    recordId: string
+  ): Promise<boolean> {
+    await this.init();
+    if (
+      !isValidServerId(userId) ||
+      !isValidServerId(recordId) ||
+      !ALLOWED_COLLECTION_TYPES.has(collectionType)
+    ) {
+      return false;
+    }
+
+    if (this.pool) {
+      await this.pool.query(
+        'DELETE FROM user_records WHERE user_id = $1 AND collection_type = $2 AND id = $3',
+        [userId, collectionType, recordId]
+      );
+      if (collectionType === 'beers') {
+        await this.pool.query(
+          `DELETE FROM user_records WHERE user_id = $1 AND collection_type = 'tastings' AND (payload->>'beerId') = $2`,
+          [userId, recordId]
+        );
+      }
+      return true;
+    }
+
+    const bucket = this.ensureMemoryBucket(userId);
+    const colKey = collectionType as
+      | 'categories'
+      | 'beers'
+      | 'tastings'
+      | 'glasses'
+      | 'pubDeals'
+      | 'sessions';
+    bucket[colKey].delete(recordId);
+    if (colKey === 'beers') {
+      bucket.tastings.forEach((t, tid) => {
+        if (t.beerId === recordId) bucket.tastings.delete(tid);
+      });
+    }
+    return true;
+  }
+
+  public async clearUserCollections(userId: string): Promise<boolean> {
+    await this.init();
+    if (!isValidServerId(userId)) return false;
+
+    if (this.pool) {
+      await this.pool.query('DELETE FROM user_records WHERE user_id = $1', [userId]);
+      return true;
+    }
+
+    const bucket = this.ensureMemoryBucket(userId);
+    bucket.categories.clear();
+    bucket.beers.clear();
+    bucket.tastings.clear();
+    bucket.glasses.clear();
+    bucket.sessions.clear();
+    return true;
+  }
+
   /**
-   * Synchroniseert de collecties van een ingelogde gebruiker rechtstreeks naar de server-database.
-   * Weigert elk record-ID dat al aan een andere gebruiker in de database toebehoort, zodat een
-   * vervuilde browser-localStorage nooit bieren van andere gebruikers op dit account kan schrijven.
+   * Synchroniseert de collecties van een ingelogde gebruiker rechtstreeks naar de server-database via UPSERT.
+   * Wist NOOIT bestaande records wanneer een gebruiker vanaf een nieuw domein of nieuw apparaat met lege localStorage inlogt.
    */
   public async syncUserCollections(
     userId: string,
@@ -1038,7 +1045,6 @@ class CentralDatabaseClient {
     await this.init();
     if (!isValidServerId(userId)) return;
 
-    // Zorg dat de gebruiker gegarandeerd bestaat in de users-tabel (voorkomt foreign key fouten)
     const existing = await this.getUserById(userId);
     const upsertedUser = await this.upsertUser({
       id: userId,
@@ -1048,9 +1054,6 @@ class CentralDatabaseClient {
       lastActiveAt: new Date().toISOString(),
     });
     const effectiveUserId = upsertedUser.id;
-
-    // Haal alle record-ID's op die van ANDERE gebruikers zijn zodat die nooit onder deze gebruiker worden opgeslagen
-    const foreignIds = new Set(await this.getForeignRecordIds(effectiveUserId));
 
     const keys: Array<'categories' | 'beers' | 'tastings' | 'glasses' | 'pubDeals' | 'sessions'> = [
       'categories',
@@ -1063,39 +1066,17 @@ class CentralDatabaseClient {
 
     for (const colType of keys) {
       const list = collections[colType];
-      if (!Array.isArray(list)) continue;
-
-      if (this.pool) {
-        await this.pool.query(
-          'DELETE FROM user_records WHERE user_id = $1 AND collection_type = $2',
-          [effectiveUserId, colType]
-        );
-      } else {
-        this.ensureMemoryBucket(effectiveUserId)[colType].clear();
-      }
+      if (!Array.isArray(list) || list.length === 0) continue;
 
       for (const rawItem of list.slice(0, 5000)) {
         if (!rawItem || typeof rawItem !== 'object') continue;
         const obj = rawItem as Record<string, unknown>;
         const recId = isValidServerId(obj.id) ? obj.id : sanitizeServerId(undefined, colType);
-        // Sla over als dit bier, glas of deze proefnotitie van een andere gebruiker is
-        if (
-          (colType === 'beers' || colType === 'tastings' || colType === 'glasses') &&
-          foreignIds.has(recId)
-        ) {
-          continue;
-        }
-        if (
-          colType === 'tastings' &&
-          typeof obj.beerId === 'string' &&
-          foreignIds.has(obj.beerId)
-        ) {
-          continue;
-        }
         await this.insertRecordIfNotExists(effectiveUserId, colType, recId, obj, false);
       }
     }
 
+    await this.consolidateDuplicateDatabaseUsers();
     await this.repairCrossAccountContamination();
   }
 }

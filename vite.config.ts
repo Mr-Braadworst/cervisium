@@ -4,7 +4,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig, Plugin } from 'vite';
-import { VitePWA } from 'vite-plugin-pwa';
 
 function computeSourceTreeHash(rootDir: string): string {
   const hash = crypto.createHash('sha256');
@@ -144,117 +143,6 @@ export default defineConfig(() => {
       autoVersionPlugin(),
       react(),
       tailwindcss(),
-      VitePWA({
-        registerType: 'autoUpdate',
-        injectRegister: 'auto',
-        devOptions: {
-          enabled: true,
-          type: 'module',
-        },
-        includeAssets: [
-          'favicon.png',
-          'icon.png',
-          'icon.svg',
-          'apple-touch-icon.png',
-          'pwa-192x192.png',
-          'pwa-512x512.png',
-          'pwa-maskable-192x192.png',
-          'pwa-maskable-512x512.png',
-        ],
-        workbox: {
-          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-          cleanupOutdatedCaches: true,
-          clientsClaim: true,
-          skipWaiting: true,
-          navigateFallback: null,
-          globPatterns: ['**/*.{js,css,ico,png,svg,woff,woff2,webmanifest}'],
-          runtimeCaching: [
-            {
-              urlPattern: ({ request }) => request.mode === 'navigate',
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'cervisium-pages-cache',
-                networkTimeoutSeconds: 3,
-                cacheableResponse: {
-                  statuses: [200],
-                },
-              },
-            },
-            {
-              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'google-fonts-cache',
-                expiration: {
-                  maxEntries: 10,
-                  maxAgeSeconds: 60 * 60 * 24 * 365,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
-              },
-            },
-            {
-              urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'gstatic-fonts-cache',
-                expiration: {
-                  maxEntries: 10,
-                  maxAgeSeconds: 60 * 60 * 24 * 365,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
-              },
-            },
-          ],
-        },
-        manifest: {
-          id: '/',
-          name: 'Cervisium - Persoonlijke Bier Tracker',
-          short_name: 'Cervisium',
-          description:
-            'Jouw persoonlijke bier collectie en beoordelingsapp met categoriebeheer, proefnotities en statistieken.',
-          lang: 'nl',
-          dir: 'ltr',
-          theme_color: '#f59e0b',
-          background_color: '#09090b',
-          display: 'standalone',
-          display_override: ['standalone', 'minimal-ui'],
-          orientation: 'portrait-primary',
-          start_url: '/',
-          scope: '/',
-          prefer_related_applications: false,
-          categories: ['food', 'lifestyle', 'utilities'],
-          icons: [
-            {
-              src: '/pwa-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-maskable-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'maskable',
-            },
-            {
-              src: '/pwa-maskable-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'maskable',
-            },
-          ],
-        },
-      }),
     ],
     resolve: {
       alias: {

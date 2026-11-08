@@ -33,6 +33,7 @@ import {
   ImportedBackupPayload,
   syncUserWithServerDatabase,
   pushUserRecordsToServerNow,
+  clearServerCollectionsNow,
 } from './services/storage';
 
 import {
@@ -207,14 +208,33 @@ export default function App() {
         // Synchroniseer Firebase ID-token met de server-sessie en voeg lokale + server-collecties samen
         try {
           const idToken = await fbUser.getIdToken();
-          await fetch('/api/auth/google', {
+          const authRes = await fetch('/api/auth/google', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ credential: idToken }),
           });
-          await syncUserWithServerDatabase(initialAccount);
-          reloadDataForUser(initialAccount);
+          let targetAccount = initialAccount;
+          if (authRes.ok) {
+            const authData = (await authRes.json()) as { user?: UserAccount };
+            if (authData?.user?.id) {
+              targetAccount = {
+                id: authData.user.id,
+                name: authData.user.name || initialAccount.name,
+                googleName: authData.user.googleName || initialAccount.googleName,
+                email: authData.user.email || initialAccount.email,
+                role: authData.user.role,
+                avatarUrl: authData.user.avatarUrl || initialAccount.avatarUrl,
+                createdAt: authData.user.createdAt || initialAccount.createdAt,
+              };
+            }
+          }
+          loginUser(targetAccount);
+          await syncUserWithServerDatabase(targetAccount);
+          const refreshed = getActiveUser() || targetAccount;
+          setAuthenticatedUser(refreshed);
+          setActiveUserState(refreshed);
+          reloadDataForUser(refreshed);
         } catch {
           // Negeer als server-sync tijdelijk niet bereikbaar is
         }
@@ -362,7 +382,12 @@ export default function App() {
     setActiveUserState(user);
     reloadDataForUser(user);
     syncUserWithServerDatabase(user)
-      .then(() => reloadDataForUser(user))
+      .then(() => {
+        const refreshed = getActiveUser() || user;
+        setAuthenticatedUser(refreshed);
+        setActiveUserState(refreshed);
+        reloadDataForUser(refreshed);
+      })
       .catch(() => {});
     if (isClientFirestoreEnabled() && auth.currentUser && auth.currentUser.uid === user.id) {
       syncUserProfileFirestore(user).catch((e) =>
@@ -835,6 +860,7 @@ export default function App() {
     saveCategories(activeUser.id, []);
     saveBeers(activeUser.id, []);
     saveTastings(activeUser.id, []);
+    void clearServerCollectionsNow();
     setCategories([]);
     setBeers([]);
     setTastings([]);

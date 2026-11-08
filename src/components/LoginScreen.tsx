@@ -129,13 +129,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   };
 
   const verifyAndSyncWithBackend = useCallback(
-    async (idToken: string, fallbackAccount?: UserAccount): Promise<UserAccount> => {
+    async (
+      idToken: string,
+      fallbackAccount?: UserAccount,
+      plainPassword?: string
+    ): Promise<UserAccount> => {
       try {
         const res = await fetch('/api/auth/google', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credential: idToken }),
+          body: JSON.stringify({
+            credential: idToken,
+            ...(plainPassword ? { password: plainPassword } : {}),
+          }),
         });
 
         if (res.ok) {
@@ -383,7 +390,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         createdAt: new Date().toISOString(),
       };
 
-      const verifiedAccount = await verifyAndSyncWithBackend(idToken, fallbackAccount);
+      const verifiedAccount = await verifyAndSyncWithBackend(idToken, fallbackAccount, password);
       onLogin(verifiedAccount);
     } catch (err: unknown) {
       // Probeer directe inlog op de centrale server-database (werkt op elk IP en poort)

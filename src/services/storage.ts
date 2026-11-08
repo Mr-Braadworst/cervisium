@@ -180,14 +180,47 @@ export function consolidateLocalAccountsForUser(targetUser: UserAccount): void {
           }))
       : [];
 
-    // Voeg UITSLUITEND lokale accounts samen die exact hetzelfde geverifieerde e-mailadres hebben
+    // Voeg lokale accounts samen die hetzelfde e-mailadres hebben óf een lokaal gastaccount zijn
     const uidsToMerge = new Set<string>();
+    const otherRealUserIds = new Set<string>();
 
     for (const u of existingUsers) {
       if (u.id === targetId) continue;
       const uEmail = !isPlaceholderUserEmail(u.email) ? u.email.trim().toLowerCase() : '';
       if (targetEmail && uEmail && uEmail === targetEmail) {
         uidsToMerge.add(u.id);
+      } else if (targetEmail && !uEmail) {
+        uidsToMerge.add(u.id);
+      } else if (uEmail) {
+        otherRealUserIds.add(u.id);
+      }
+    }
+
+    // Controleer ook op losse bierlog_beers_<uid> sleutels in localStorage die op een eerder ID stonden
+    if (targetEmail && otherRealUserIds.size === 0) {
+      const prefixes = [
+        'bierlog_beers_',
+        'bierlog_categories_',
+        'bierlog_tastings_',
+        'bierlog_glasses_',
+        'bierlog_sessions_',
+      ];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        for (const prefix of prefixes) {
+          if (key.startsWith(prefix)) {
+            const candidateUid = key.slice(prefix.length);
+            if (
+              candidateUid &&
+              candidateUid !== targetId &&
+              isValidEntityId(candidateUid) &&
+              !otherRealUserIds.has(candidateUid)
+            ) {
+              uidsToMerge.add(candidateUid);
+            }
+          }
+        }
       }
     }
 
@@ -427,6 +460,7 @@ export function updateCategory(userId: string, id: string, name: string, color: 
 export function deleteCategory(userId: string, id: string): void {
   const categories = getCategories(userId).filter(c => c.id !== id);
   saveCategories(userId, categories);
+  void deleteServerRecordNow('categories', id);
 }
 
 // --- Beers & Tastings ---
@@ -601,11 +635,13 @@ export function deleteBeer(userId: string, beerId: string): void {
   saveBeers(userId, beers);
   const tastings = getTastings(userId).filter(t => t.beerId !== beerId);
   saveTastings(userId, tastings);
+  void deleteServerRecordNow('beers', beerId);
 }
 
 export function deleteTasting(userId: string, tastingId: string): void {
   const tastings = getTastings(userId).filter(t => t.id !== tastingId);
   saveTastings(userId, tastings);
+  void deleteServerRecordNow('tastings', tastingId);
 }
 
 // --- Sample Data & Utilities ---
@@ -954,6 +990,7 @@ export function addBeerSession(userId: string, sessionData: Omit<BeerSession, 'i
 export function deleteBeerSession(userId: string, sessionId: string): void {
   const sessions = getBeerSessions(userId).filter(s => s.id !== sessionId);
   saveBeerSessions(userId, sessions);
+  void deleteServerRecordNow('sessions', sessionId);
 }
 
 // --- Beer Glasses Management ---
@@ -1062,6 +1099,7 @@ export function updateGlass(
 export function deleteGlass(userId: string, glassId: string): void {
   const glasses = getGlasses(userId).filter(g => g.id !== glassId);
   saveGlasses(userId, glasses);
+  void deleteServerRecordNow('glasses', glassId);
 }
 
 // --- User Settings Management ---
@@ -1135,6 +1173,41 @@ export async function buildServerAuthHeaders(includeJsonContentType = true): Pro
   return headers;
 }
 
+export async function deleteServerRecordNow(
+  collectionType: 'categories' | 'beers' | 'tastings' | 'glasses' | 'sessions',
+  recordId: string
+): Promise<boolean> {
+  if (!isValidEntityId(recordId)) return false;
+  try {
+    const headers = await buildServerAuthHeaders(false);
+    const res = await fetch(
+      `/api/me/records/${encodeURIComponent(collectionType)}/${encodeURIComponent(recordId)}`,
+      {
+        method: 'DELETE',
+        credentials: 'include',
+        headers,
+      }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function clearServerCollectionsNow(): Promise<boolean> {
+  try {
+    const headers = await buildServerAuthHeaders(false);
+    const res = await fetch('/api/me/records', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function pushUserRecordsToServerNow(userId: string): Promise<boolean> {
   if (!isValidEntityId(userId)) return false;
   try {
@@ -1197,14 +1270,14 @@ export function queueServerDatabaseSync(userId: string): void {
 
 /**
  * Volledige tweerichting-synchronisatie tussen de browser en de lokale server-database:
- * 1) Voegt eventuele lokale dubbele UIDs voor dezelfde gebruiker samen
+ * 1) Voegt eventuele lokale dubbele UIDs en gast-collecties voor dezelfde gebruiker samen
  * 2) Haalt server-records (inclusief foto's) op via /api/me en voegt ze samen met lokale records
  * 3) Pusht de complete samengevoegde collectie (inclusief alle foto's) direct naar /api/me/records/sync
  */
 export async function syncUserWithServerDatabase(user: UserAccount): Promise<boolean> {
   if (!user || !isValidEntityId(user.id)) return false;
   consolidateLocalAccountsForUser(user);
-  const userId = user.id;
+  let userId = user.id;
 
   try {
     const getHeaders = await buildServerAuthHeaders(false);
@@ -1239,27 +1312,42 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
 
     if (res.ok) {
       const data = (await res.json()) as {
+        user?: {
+          id?: string;
+          email?: string;
+          name?: string;
+          googleName?: string;
+          role?: 'admin' | 'user';
+          avatarUrl?: string;
+        };
         records?: {
           categories?: unknown[];
           beers?: unknown[];
           tastings?: unknown[];
           glasses?: unknown[];
         };
-        foreignRecordIds?: string[];
       };
 
-      const foreignSet = new Set<string>(
-        Array.isArray(data.foreignRecordIds)
-          ? data.foreignRecordIds.filter((id): id is string => typeof id === 'string')
-          : []
-      );
-
-      if (foreignSet.size > 0) {
-        localBeers = localBeers.filter((b) => !foreignSet.has(b.id));
-        localTastings = localTastings.filter(
-          (t) => !foreignSet.has(t.id) && !foreignSet.has(t.beerId)
-        );
-        localGlasses = localGlasses.filter((g) => !foreignSet.has(g.id));
+      if (data.user?.id && isValidEntityId(data.user.id) && data.user.id !== userId) {
+        const canonicalUser: UserAccount = {
+          ...user,
+          id: data.user.id,
+          email: data.user.email || user.email,
+          name: data.user.name || user.name,
+          role: data.user.role || user.role,
+        };
+        setActiveUser(canonicalUser);
+        userId = canonicalUser.id;
+        localCats = deduplicateById([...getCategories(userId), ...localCats]);
+        localBeers = deduplicateById([
+          ...getBeers(userId),
+          ...localBeers.map((b) => ({ ...b, userId })),
+        ]);
+        localTastings = deduplicateById([...getTastings(userId), ...localTastings]);
+        localGlasses = deduplicateById([
+          ...getGlasses(userId),
+          ...localGlasses.map((g) => ({ ...g, userId })),
+        ]);
       }
 
       if (data.records) {
@@ -1271,38 +1359,24 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
         const serverBeers = Array.isArray(data.records.beers)
           ? data.records.beers
               .map((b) => sanitizeImportedBeer(b, userId))
-              .filter((b): b is Beer => b !== null && !foreignSet.has(b.id))
+              .filter((b): b is Beer => b !== null)
           : [];
         const serverTastings = Array.isArray(data.records.tastings)
           ? data.records.tastings
               .map((t) => sanitizeImportedTasting(t))
-              .filter(
-                (t): t is Tasting =>
-                  t !== null && !foreignSet.has(t.id) && !foreignSet.has(t.beerId)
-              )
+              .filter((t): t is Tasting => t !== null)
           : [];
         const serverGlasses = Array.isArray(data.records.glasses)
           ? data.records.glasses
               .map((g) => sanitizeImportedGlass(g, userId))
-              .filter((g): g is BeerGlass => g !== null && !foreignSet.has(g.id))
+              .filter((g): g is BeerGlass => g !== null)
           : [];
 
         // Merge server + lokaal (en behoud altijd foto's indien aanwezig)
+        localCats = deduplicateById([...serverCats, ...localCats]);
         localBeers = deduplicateById([...serverBeers, ...localBeers]);
         localTastings = deduplicateById([...serverTastings, ...localTastings]);
         localGlasses = deduplicateById([...serverGlasses, ...localGlasses]);
-
-        if (foreignSet.size > 0) {
-          const validCatIds = new Set<string>([
-            ...serverCats.map((c) => c.id),
-            ...localBeers.map((b) => b.categoryId),
-          ]);
-          localCats = deduplicateById([...serverCats, ...localCats]).filter((c) =>
-            validCatIds.has(c.id)
-          );
-        } else {
-          localCats = deduplicateById([...serverCats, ...localCats]);
-        }
 
         const mem = getUserMemory(userId);
         mem.categories = localCats;

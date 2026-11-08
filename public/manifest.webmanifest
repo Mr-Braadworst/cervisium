@@ -1,0 +1,43 @@
+{
+  "id": "/",
+  "name": "Cervisium - Persoonlijke Bier Tracker",
+  "short_name": "Cervisium",
+  "description": "Jouw persoonlijke bier collectie en beoordelingsapp met categoriebeheer, proefnotities en statistieken.",
+  "lang": "nl",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "theme_color": "#f59e0b",
+  "background_color": "#09090b",
+  "prefer_related_applications": false,
+  "categories": ["food", "lifestyle", "utilities"],
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

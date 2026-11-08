@@ -286,7 +286,10 @@ async function startServer() {
    */
   app.post('/api/auth/google', async (req, res) => {
     try {
-      const { credential } = (req.body || {}) as { credential?: string };
+      const { credential, password } = (req.body || {}) as {
+        credential?: string;
+        password?: string;
+      };
       const authHeader = req.headers.authorization;
       const token =
         credential ||
@@ -306,12 +309,22 @@ async function startServer() {
         return;
       }
 
+      let optionalPasswordHash: string | undefined;
+      if (typeof password === 'string' && password.length >= 8 && password.length <= 256) {
+        try {
+          optionalPasswordHash = await hashPassword(password);
+        } catch {
+          // ignore
+        }
+      }
+
       const dbUser = await centralDb.upsertUser({
         id: verifiedGoogleUser.uid,
         email: verifiedGoogleUser.email,
         name: verifiedGoogleUser.name || 'Bierliefhebber',
         googleName: verifiedGoogleUser.name,
         role: verifiedGoogleUser.role,
+        passwordHash: optionalPasswordHash,
         avatarUrl: verifiedGoogleUser.avatarUrl,
         lastActiveAt: new Date().toISOString(),
       });
@@ -635,6 +648,34 @@ async function startServer() {
       res.status(400).json({
         error: err instanceof Error ? err.message : 'Synchroniseren met database mislukt.',
       });
+    }
+  });
+
+  app.delete('/api/me/records/:type/:id', requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const profile = authUser.email
+        ? await centralDb.getUserByEmail(authUser.email)
+        : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      await centralDb.deleteUserRecord(effectiveUid, req.params.type, req.params.id);
+      res.json({ ok: true });
+    } catch {
+      res.status(400).json({ error: 'Kon item niet verwijderen uit database.' });
+    }
+  });
+
+  app.delete('/api/me/records', requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const profile = authUser.email
+        ? await centralDb.getUserByEmail(authUser.email)
+        : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      await centralDb.clearUserCollections(effectiveUid);
+      res.json({ ok: true });
+    } catch {
+      res.status(400).json({ error: 'Kon gegevens niet wissen uit database.' });
     }
   });
 

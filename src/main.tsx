@@ -1,5 +1,4 @@
 import { createRoot } from 'react-dom/client';
-import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
 import { syncFirebaseConfigFromServer } from './firebase';
@@ -24,17 +23,20 @@ if (typeof window !== 'undefined' && window.location.hostname.toLowerCase() === 
 initBrowserLanguageSync();
 void syncFirebaseConfigFromServer();
 
-// Registreer de Service Worker direct voor volledige Android 14+ / WebAPK ondersteuning & automatische updates
-registerSW({
-  immediate: true,
-  onRegisteredSW(_swUrl, registration) {
-    if (registration) {
-      registration.update().catch(() => {});
-      setInterval(() => {
+// Registreer de Service Worker direct via de standaard browser-API (zonder externe build-plugins)
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/' })
+      .then((registration) => {
         registration.update().catch(() => {});
-      }, 60 * 60 * 1000);
-    }
-  },
-});
+        setInterval(() => {
+          registration.update().catch(() => {});
+        }, 60 * 60 * 1000);
+      })
+      .catch(() => {});
+  });
+}
 
 createRoot(document.getElementById('root')!).render(<App />);
+
