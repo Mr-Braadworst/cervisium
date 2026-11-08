@@ -8,9 +8,6 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   updateProfile,
-  getActiveFirebaseProjectId,
-  syncFirebaseConfigFromServer,
-  applyRuntimeFirebaseConfig,
 } from '../firebase';
 import {
   loginUser,
@@ -94,9 +91,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
-  const [showFirebaseConfigSetup, setShowFirebaseConfigSetup] = useState(false);
-  const [firebasePasteInput, setFirebasePasteInput] = useState('');
-  const [isSavingFirebaseConfig, setIsSavingFirebaseConfig] = useState(false);
   const googleGsiButtonRef = useRef<HTMLDivElement>(null);
 
   const isLocked = secondsRemaining > 0;
@@ -470,82 +464,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     }
   };
 
-  const handleSaveCustomFirebaseConfig = async () => {
-    const raw = firebasePasteInput.trim();
-    if (!raw) {
-      setAuthError('Plak eerst je firebaseConfig (of apiKey en projectId) uit je Firebase Console.');
-      return;
-    }
-
-    const extractField = (key: string): string => {
-      const regex = new RegExp(`["']?${key}["']?\\s*[:=]\\s*["']([^"'\\s,]+)["']`, 'i');
-      const match = raw.match(regex);
-      return match ? match[1].trim() : '';
-    };
-
-    let apiKey = extractField('apiKey') || extractField('FIREBASE_API_KEY') || extractField('VITE_FIREBASE_API_KEY');
-    let projectId =
-      extractField('projectId') || extractField('FIREBASE_PROJECT_ID') || extractField('VITE_FIREBASE_PROJECT_ID');
-    const authDomain =
-      extractField('authDomain') || extractField('FIREBASE_AUTH_DOMAIN') || extractField('VITE_FIREBASE_AUTH_DOMAIN');
-    const storageBucket =
-      extractField('storageBucket') ||
-      extractField('FIREBASE_STORAGE_BUCKET') ||
-      extractField('VITE_FIREBASE_STORAGE_BUCKET');
-    const messagingSenderId =
-      extractField('messagingSenderId') ||
-      extractField('FIREBASE_MESSAGING_SENDER_ID') ||
-      extractField('VITE_FIREBASE_MESSAGING_SENDER_ID');
-    const appId = extractField('appId') || extractField('FIREBASE_APP_ID') || extractField('VITE_FIREBASE_APP_ID');
-
-    if (!apiKey) {
-      const keyMatch = raw.match(/AIza[0-9A-Za-z_-]{30,45}/);
-      if (keyMatch) apiKey = keyMatch[0];
-    }
-
-    if (!apiKey || !projectId) {
-      setAuthError(
-        'Kon apiKey (begint met AIza...) of projectId niet vinden in de geplakte tekst. Kopieer het volledige firebaseConfig-blok uit Firebase Console → Project Settings → General.'
-      );
-      return;
-    }
-
-    setIsSavingFirebaseConfig(true);
-    try {
-      const res = await fetch('/api/firebase-config', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey,
-          projectId,
-          authDomain: authDomain || `${projectId}.firebaseapp.com`,
-          storageBucket: storageBucket || `${projectId}.firebasestorage.app`,
-          messagingSenderId,
-          appId,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setAuthError(data?.error || 'Kon Firebase-configuratie niet opslaan op de server.');
-        return;
-      }
-      if (data?.config) {
-        applyRuntimeFirebaseConfig(data.config);
-      }
-      setShowFirebaseConfigSetup(false);
-      setFirebasePasteInput('');
-      setAuthError(null);
-      setResetSuccessMessage(
-        `Jouw Firebase-project (${projectId}) is permanent gekoppeld en opgeslagen in /data! Klik nu nogmaals op "Inloggen met Google".`
-      );
-    } catch {
-      setAuthError('Netwerkfout bij het opslaan van de Firebase-configuratie.');
-    } finally {
-      setIsSavingFirebaseConfig(false);
-    }
-  };
-
   const handleFirebaseGoogleSignIn = async () => {
     if (isLocked) {
       setAuthError(
@@ -559,8 +477,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     setIsSigningIn(true);
 
     try {
-      const activeAuth = await syncFirebaseConfigFromServer();
-      const result = await signInWithPopup(activeAuth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       const idToken = await user.getIdToken();
 
@@ -586,17 +503,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       }
 
       if (msg.includes('unauthorized-domain')) {
-        const activeProj = getActiveFirebaseProjectId();
-        if (activeProj === 'rosy-logic-ckpr3') {
-          setShowFirebaseConfigSetup(true);
-          setAuthError(
-            `De server gebruikt momenteel nog het standaard AI Studio project (${activeProj}) in plaats van jouw eigen Firebase Console project waarin je ${window.location.hostname} hebt toegevoegd. Plak hieronder eenmalig jouw eigen firebaseConfig uit Firebase Console om die blijvend in /data op te slaan.`
-          );
-        } else {
-          setAuthError(
-            `Dit adres (${window.location.hostname}) staat nog niet bij Geautoriseerde domeinen in jouw Firebase Console voor project "${activeProj}" (Authentication → Settings → Authorized domains). Gebruik hierboven E-mail & Wachtwoord of voeg het adres toe.`
-          );
-        }
+        setAuthError(
+          `Dit adres (${window.location.hostname}) staat nog niet bij Geautoriseerde domeinen in jouw Firebase Console (Authentication → Settings → Authorized domains). Gebruik hierboven E-mail & Wachtwoord of voeg het adres toe.`
+        );
         return;
       }
 
@@ -742,48 +651,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           {/* Error Message if present */}
           {authError && (
             <div
-              className={`p-3.5 rounded-2xl border text-xs space-y-3 leading-relaxed ${
+              className={`p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 leading-relaxed ${
                 isLocked
                   ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
                   : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
               }`}
             >
-              <div className="flex items-start gap-2.5">
-                <AlertCircle
-                  className={`w-4 h-4 shrink-0 mt-0.5 ${isLocked ? 'text-rose-400' : 'text-amber-400'}`}
-                />
-                <span>{authError}</span>
-              </div>
-
-              {showFirebaseConfigSetup && (
-                <div className="pt-2 border-t border-amber-500/20 space-y-2.5">
-                  <p className="text-[11px] text-zinc-300">
-                    Ga in je{' '}
-                    <strong className="text-amber-300">
-                      Firebase Console → Project Settings (tandwiel) → General → Your apps
-                    </strong>
-                    , kopieer het <code className="text-amber-300">firebaseConfig</code> blok en
-                    plak het hieronder (wordt blijvend bewaard in <code className="text-amber-300">/data/.firebase_env</code>):
-                  </p>
-                  <textarea
-                    rows={4}
-                    value={firebasePasteInput}
-                    onChange={(e) => setFirebasePasteInput(e.target.value)}
-                    placeholder={`apiKey: "AIzaSy...",\nauthDomain: "jouw-project.firebaseapp.com",\nprojectId: "jouw-project"`}
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSaveCustomFirebaseConfig}
-                    disabled={isSavingFirebaseConfig}
-                    className="w-full py-2.5 px-3 rounded-xl font-bold text-xs bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {isSavingFirebaseConfig
-                      ? 'Opslaan op server...'
-                      : 'Koppel mijn Firebase Project & Bewaar in /data'}
-                  </button>
-                </div>
-              )}
+              <AlertCircle
+                className={`w-4 h-4 shrink-0 mt-0.5 ${isLocked ? 'text-rose-400' : 'text-amber-400'}`}
+              />
+              <span>{authError}</span>
             </div>
           )}
 

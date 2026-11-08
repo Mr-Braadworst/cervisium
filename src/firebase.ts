@@ -1,7 +1,6 @@
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { initializeApp } from 'firebase/app';
 import {
   getAuth,
-  Auth,
   GoogleAuthProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -27,25 +26,23 @@ import {
 } from 'firebase/firestore';
 import defaultFirebaseConfig from '../firebase-applet-config.json';
 
-export interface RuntimeFirebaseConfig {
-  apiKey: string;
-  authDomain: string;
-  projectId: string;
-  storageBucket?: string;
-  messagingSenderId?: string;
-  appId?: string;
-  firestoreDatabaseId?: string;
-}
-
 /**
  * Ondersteunt zowel zelfstandige hosting (via omgevingsvariabelen op een eigen server)
  * als de bestaande configuratie in firebase-applet-config.json.
  */
-function resolveFirebaseConfig(): RuntimeFirebaseConfig {
+function resolveFirebaseConfig() {
   if (typeof window !== 'undefined') {
     const winConfig = (
       window as unknown as {
-        __BIERLOG_FIREBASE_CONFIG__?: Partial<RuntimeFirebaseConfig>;
+        __BIERLOG_FIREBASE_CONFIG__?: {
+          apiKey?: string;
+          authDomain?: string;
+          projectId?: string;
+          storageBucket?: string;
+          messagingSenderId?: string;
+          appId?: string;
+          firestoreDatabaseId?: string;
+        };
       }
     ).__BIERLOG_FIREBASE_CONFIG__;
 
@@ -85,67 +82,15 @@ function resolveFirebaseConfig(): RuntimeFirebaseConfig {
   return defaultFirebaseConfig;
 }
 
-let currentConfig: RuntimeFirebaseConfig = resolveFirebaseConfig();
-const app = initializeApp(currentConfig);
-export let auth: Auth = getAuth(app);
+const activeConfig = resolveFirebaseConfig();
+const app = initializeApp(activeConfig);
+export const auth = getAuth(app);
 export const db =
-  currentConfig.firestoreDatabaseId && currentConfig.firestoreDatabaseId !== '(default)'
-    ? getFirestore(app, currentConfig.firestoreDatabaseId)
+  activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)'
+    ? getFirestore(app, activeConfig.firestoreDatabaseId)
     : getFirestore(app, defaultFirebaseConfig.firestoreDatabaseId);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
-
-export function getActiveFirebaseProjectId(): string {
-  return currentConfig.projectId || defaultFirebaseConfig.projectId;
-}
-
-export function applyRuntimeFirebaseConfig(newConfig: RuntimeFirebaseConfig): Auth {
-  if (!newConfig?.apiKey || !newConfig?.projectId) {
-    return auth;
-  }
-  currentConfig = {
-    apiKey: newConfig.apiKey,
-    authDomain: newConfig.authDomain || `${newConfig.projectId}.firebaseapp.com`,
-    projectId: newConfig.projectId,
-    storageBucket: newConfig.storageBucket || `${newConfig.projectId}.firebasestorage.app`,
-    messagingSenderId: newConfig.messagingSenderId || '',
-    appId: newConfig.appId || '',
-    firestoreDatabaseId: newConfig.firestoreDatabaseId || '(default)',
-  };
-  if (typeof window !== 'undefined') {
-    (
-      window as unknown as {
-        __BIERLOG_FIREBASE_CONFIG__?: RuntimeFirebaseConfig;
-      }
-    ).__BIERLOG_FIREBASE_CONFIG__ = currentConfig;
-  }
-  const appName = `cervisium-runtime-${currentConfig.projectId}`;
-  const existingApp: FirebaseApp | undefined = getApps().find((a) => a.name === appName);
-  const runtimeApp = existingApp || initializeApp(currentConfig, appName);
-  auth = getAuth(runtimeApp);
-  return auth;
-}
-
-export async function syncFirebaseConfigFromServer(): Promise<Auth> {
-  try {
-    const res = await fetch('/api/firebase-config', {
-      method: 'GET',
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      const data = (await res.json()) as {
-        configured?: boolean;
-        config?: RuntimeFirebaseConfig | null;
-      };
-      if (data?.configured && data.config?.apiKey && data.config?.projectId) {
-        return applyRuntimeFirebaseConfig(data.config);
-      }
-    }
-  } catch {
-    // Negeer netwerkfout
-  }
-  return auth;
-}
 
 // OperationType & FirestoreErrorInfo conforming strictly to skill requirements
 export enum OperationType {
