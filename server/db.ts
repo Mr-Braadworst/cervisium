@@ -184,7 +184,8 @@ class CentralDatabaseClient {
 
   /**
    * Zorgt ervoor dat uitsluitend geverifieerde beheerder-accounts de rol 'admin' hebben
-   * zonder ooit bieren, proefnotities, glazen of categorieën van de eigenaar te wissen.
+   * en dat per ongeluk naar het admin-account gekopieerde records van andere gebruikers
+   * automatisch worden hersteld of opgeruimd uit de PostgreSQL database.
    */
   public async repairCrossAccountContamination(): Promise<void> {
     if (!this.pool) {
@@ -205,8 +206,62 @@ class CentralDatabaseClient {
           await this.pool.query("UPDATE users SET role = 'user' WHERE id = $1", [r.id]);
         }
       }
+
+      // Detecteer beheerder-accounts
+      const adminUsersRes = await this.pool.query(
+        "SELECT id FROM users WHERE LOWER(email) = 'constantijnvanvuuren@gmail.com' OR role = 'admin'"
+      );
+      const adminIds: string[] = adminUsersRes.rows.map((r) => String(r.id));
+
+      if (adminIds.length > 0) {
+        // A. Als payload->>'userId' naar een ander (niet-admin) account wijst, zet het record terug naar die gebruiker
+        await this.pool.query(
+          `
+          UPDATE user_records ur
+          SET user_id = ur.payload->>'userId'
+          FROM users u
+          WHERE ur.user_id = ANY($1::text[])
+            AND ur.payload->>'userId' IS NOT NULL
+            AND ur.payload->>'userId' <> ur.user_id
+            AND u.id = ur.payload->>'userId'
+            AND u.id NOT IN (SELECT id FROM users WHERE LOWER(email) = 'constantijnvanvuuren@gmail.com' OR role = 'admin')
+          ON CONFLICT (user_id, collection_type, id) DO NOTHING;
+          `,
+          [adminIds]
+        );
+
+        // B. Verwijder van het admin-account alle records waarvan de payload->>'userId' expliciet naar een andere gebruiker wijst
+        await this.pool.query(
+          `
+          DELETE FROM user_records
+          WHERE user_id = ANY($1::text[])
+            AND payload->>'userId' IS NOT NULL
+            AND payload->>'userId' <> user_id;
+          `,
+          [adminIds]
+        );
+
+        // C. Als een ander (niet-admin) account exact hetzelfde item (bier/proefnotitie/glas) in zijn collectie heeft,
+        //    verwijder dat item uit de admin user_records (want dat item behoort primair tot de andere gebruiker).
+        await this.pool.query(
+          `
+          DELETE FROM user_records ur
+          WHERE ur.user_id = ANY($1::text[])
+            AND EXISTS (
+              SELECT 1 FROM user_records other
+              WHERE other.id = ur.id
+                AND other.collection_type = ur.collection_type
+                AND other.user_id <> ur.user_id
+                AND other.user_id NOT IN (
+                  SELECT id FROM users WHERE LOWER(email) = 'constantijnvanvuuren@gmail.com' OR role = 'admin'
+                )
+            );
+          `,
+          [adminIds]
+        );
+      }
     } catch (err) {
-      console.warn('[Database] Controle admin-rol melding:', err instanceof Error ? err.message : err);
+      console.warn('[Database] Controle admin-rol & opschonen melding:', err instanceof Error ? err.message : err);
     }
   }
 
@@ -670,9 +725,7 @@ class CentralDatabaseClient {
       const userEmail = typeof userRow?.email === 'string' && !isPlaceholderEmailValue(userRow.email)
         ? userRow.email.trim().toLowerCase()
         : null;
-      const isOwner = Boolean(userEmail && isVerifiedAdminEmail(userEmail, true)) || userRow?.role === 'admin';
       const canonicalId = userEmail ? getCanonicalUserIdForEmail(userEmail) : userId;
-
       const res = await this.pool.query(
         `
         SELECT DISTINCT ON (collection_type, payload->>'id') collection_type, payload
@@ -680,10 +733,9 @@ class CentralDatabaseClient {
         WHERE user_id = $1
            OR ($2::text IS NOT NULL AND user_id = $2)
            OR ($3::text IS NOT NULL AND user_id IN (SELECT id FROM users WHERE LOWER(email) = LOWER($3)))
-           OR ($4::boolean = true AND user_id IN (SELECT id FROM users WHERE email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl'))
         ORDER BY collection_type, payload->>'id', updated_at DESC
         `,
-        [userId, canonicalId, userEmail, isOwner]
+        [userId, canonicalId, userEmail]
       );
       const grouped: Record<string, Array<Record<string, unknown>>> = {
         categories: [],
