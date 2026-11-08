@@ -55,6 +55,7 @@ function computeSourceTreeHash(rootDir: string): string {
 
 function syncAutoVersionOnBuild(rootDir: string): void {
   const versionFilePath = path.join(rootDir, 'src', 'version.json');
+  const persistentVersionPath = '/data/.app_version.json';
   try {
     const currentHash = computeSourceTreeHash(rootDir);
     let data = {
@@ -66,20 +67,40 @@ function syncAutoVersionOnBuild(rootDir: string): void {
       lastHash: '',
     };
 
-    if (fs.existsSync(versionFilePath)) {
-      const parsed = JSON.parse(fs.readFileSync(versionFilePath, 'utf8'));
-      if (parsed && typeof parsed === 'object') {
-        data = {
-          major: typeof parsed.major === 'number' ? parsed.major : 2,
-          minor: typeof parsed.minor === 'number' ? parsed.minor : 6,
-          patch: typeof parsed.patch === 'number' ? parsed.patch : 0,
-          version: typeof parsed.version === 'string' ? parsed.version : '2.6.0',
-          updatedAt:
-            typeof parsed.updatedAt === 'string'
-              ? parsed.updatedAt
-              : new Date().toISOString(),
-          lastHash: typeof parsed.lastHash === 'string' ? parsed.lastHash : '',
-        };
+    const parseVersionFile = (filePath: string) => {
+      if (!fs.existsSync(filePath)) return null;
+      try {
+        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        if (parsed && typeof parsed === 'object') {
+          return {
+            major: typeof parsed.major === 'number' ? parsed.major : 2,
+            minor: typeof parsed.minor === 'number' ? parsed.minor : 6,
+            patch: typeof parsed.patch === 'number' ? parsed.patch : 0,
+            version: typeof parsed.version === 'string' ? parsed.version : '2.6.0',
+            updatedAt:
+              typeof parsed.updatedAt === 'string'
+                ? parsed.updatedAt
+                : new Date().toISOString(),
+            lastHash: typeof parsed.lastHash === 'string' ? parsed.lastHash : '',
+          };
+        }
+      } catch {
+        // ignore
+      }
+      return null;
+    };
+
+    const repoVersion = parseVersionFile(versionFilePath);
+    const dockerVersion = parseVersionFile(persistentVersionPath);
+
+    if (repoVersion) {
+      data = repoVersion;
+    }
+    if (dockerVersion) {
+      const dockerScore = dockerVersion.major * 1_000_000 + dockerVersion.minor * 1_000 + dockerVersion.patch;
+      const repoScore = data.major * 1_000_000 + data.minor * 1_000 + data.patch;
+      if (dockerScore > repoScore || (dockerScore === repoScore && dockerVersion.lastHash)) {
+        data = dockerVersion;
       }
     }
 
@@ -90,7 +111,16 @@ function syncAutoVersionOnBuild(rootDir: string): void {
       data.version = `${data.major}.${data.minor}.${data.patch}`;
       data.updatedAt = new Date().toISOString();
       data.lastHash = currentHash;
-      fs.writeFileSync(versionFilePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    }
+
+    const serialized = JSON.stringify(data, null, 2) + '\n';
+    fs.writeFileSync(versionFilePath, serialized, 'utf8');
+    if (fs.existsSync('/data')) {
+      try {
+        fs.writeFileSync(persistentVersionPath, serialized, 'utf8');
+      } catch {
+        // ignore if /data not writable
+      }
     }
   } catch {
     // Niet-blokkerend
@@ -136,10 +166,20 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
-          navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api\//],
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,webmanifest}'],
+          navigateFallback: null,
+          globPatterns: ['**/*.{js,css,ico,png,svg,woff,woff2,webmanifest}'],
           runtimeCaching: [
+            {
+              urlPattern: ({ request }) => request.mode === 'navigate',
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'cervisium-pages-cache',
+                networkTimeoutSeconds: 3,
+                cacheableResponse: {
+                  statuses: [200],
+                },
+              },
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',

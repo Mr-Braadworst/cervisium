@@ -231,7 +231,11 @@ async function getGooglePublicCerts(forceRefresh = false): Promise<Record<string
 }
 
 function getAllowedFirebaseProjectIds(): Set<string> {
-  const allowed = new Set<string>(['cervisium', 'gen-lang-client-0932078079']);
+  const allowed = new Set<string>([
+    'cervisium',
+    'gen-lang-client-0932078079',
+    'rosy-logic-ckpr3',
+  ]);
   const envProj = (
     process.env.FIREBASE_PROJECT_ID ||
     process.env.VITE_FIREBASE_PROJECT_ID ||
