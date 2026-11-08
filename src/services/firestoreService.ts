@@ -7,6 +7,7 @@ import {
   sanitizeString,
   sanitizeHexColor,
   clampNumber,
+  getCanonicalUserIdForEmail,
 } from '../utils/security';
 import {
   auth,
@@ -95,7 +96,9 @@ export async function fetchAndSyncGoogleUserProfile(
   fbUser: FirebaseUser,
   localFallback?: UserAccount | null
 ): Promise<UserAccount> {
-  const uid = fbUser.uid;
+  const cleanEmail = (fbUser.email && fbUser.email.trim().toLowerCase()) || '';
+  const canonicalId = (cleanEmail && getCanonicalUserIdForEmail(cleanEmail)) || fbUser.uid;
+  const uid = canonicalId;
   const googleDisplayName =
     (fbUser.displayName && fbUser.displayName.trim()) ||
     formatReadableNameFromEmail(fbUser.email);

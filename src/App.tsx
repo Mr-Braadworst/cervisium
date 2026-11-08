@@ -209,6 +209,7 @@ export default function App() {
         reloadDataForUser(initialAccount);
 
         // Synchroniseer Firebase ID-token met de server-sessie en voeg lokale + server-collecties samen
+        let targetAccount = initialAccount;
         try {
           const idToken = await fbUser.getIdToken();
           const authRes = await fetch('/api/auth/google', {
@@ -217,7 +218,6 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ credential: idToken }),
           });
-          let targetAccount = initialAccount;
           if (authRes.ok) {
             const authData = (await authRes.json()) as { user?: UserAccount };
             if (authData?.user?.id) {
@@ -243,12 +243,16 @@ export default function App() {
         }
 
         if (isClientFirestoreEnabled()) {
-          const syncedAccount = await fetchAndSyncGoogleUserProfile(fbUser, stored);
-          loginUser(syncedAccount);
-          setAuthenticatedUser(syncedAccount);
-          setActiveUserState((prev) =>
-            !prev || prev.id === syncedAccount.id ? syncedAccount : prev
-          );
+          const syncedAccount = await fetchAndSyncGoogleUserProfile(fbUser, targetAccount || stored);
+          const finalAccount: UserAccount = {
+            ...syncedAccount,
+            id: targetAccount.id || syncedAccount.id,
+            role: targetAccount.role || syncedAccount.role,
+          };
+          loginUser(finalAccount);
+          setAuthenticatedUser(finalAccount);
+          setActiveUserState(finalAccount);
+          reloadDataForUser(finalAccount);
         }
       } else {
         setFirebaseUid(null);
