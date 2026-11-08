@@ -8,19 +8,13 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV VITE_USE_FIRESTORE=false
-ENV GITHUB_REPO_URL=https://github.com/Mr-Braadworst/cervisium.git
-ENV GITHUB_BRANCH=main
-ENV AUTO_UPDATE_ON_RESTART=true
-
 # Installeer git (voor auto-update bij container herstart), PostgreSQL database, su-exec en openssl
 RUN apk add --no-cache git postgresql postgresql-contrib su-exec openssl
 
-# Installeer alle dependencies (inclusief Vite & esbuild zodat de container bij herstart zelf kan bouwen)
+# Installeer ALLE dependencies (inclusief devDependencies zoals vite-plugin-pwa, vite & esbuild)
+# BELANGRIJK: NODE_ENV mag hier nog NIET op production staan, anders slaat npm devDependencies over!
 COPY package.json ./
-RUN npm install --legacy-peer-deps && npm cache clean --force
+RUN npm install --include=dev --legacy-peer-deps && npm cache clean --force
 
 # Kopieer de volledige broncode
 COPY . .
@@ -38,6 +32,14 @@ ARG VITE_FIREBASE_DATABASE_ID
 # Bouw de initiële productie-frontend (/app/dist) en bundel de Express-server (/app/server.mjs)
 RUN npm run build && \
     npx esbuild server.ts --bundle --platform=node --format=esm --packages=external --outfile=server.mjs
+
+# Zet nu pas de runtime omgeving op production
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV VITE_USE_FIRESTORE=false
+ENV GITHUB_REPO_URL=https://github.com/Mr-Braadworst/cervisium.git
+ENV GITHUB_BRANCH=main
+ENV AUTO_UPDATE_ON_RESTART=true
 
 RUN chmod +x /app/docker/entrypoint.sh && \
     mkdir -p /data /run/postgresql && \
