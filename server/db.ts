@@ -490,18 +490,16 @@ class CentralDatabaseClient {
         let inheritedCreatedAt: string = user.createdAt || nowIso;
         let oldIdsToMerge: string[] = [];
 
-        if (user.id && user.id !== safeId && isValidServerId(user.id)) {
-          oldIdsToMerge.push(user.id);
-        }
-
+        // Geheugenhouders & database-records mogen UITSLUITEND worden samengevoegd
+        // als het bestaande account EXACT hetzelfde niet-lege e-mailadres deelt.
         if (safeEmail) {
           const emailCheck = await client.query(
             `
-            SELECT * FROM users
+            SELECT id, email, password_hash, avatar_url, google_name, settings, created_at
+            FROM users
             WHERE LOWER(email) = $1
-               OR id = $2
             `,
-            [safeEmail, user.id]
+            [safeEmail]
           );
           for (const existingRow of emailCheck.rows) {
             if (existingRow.id !== safeId) {

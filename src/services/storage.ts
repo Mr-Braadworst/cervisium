@@ -1404,11 +1404,22 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
               .filter((g): g is BeerGlass => g !== null)
           : [];
 
-        // Merge server + lokaal (en behoud altijd foto's indien aanwezig)
-        localCats = deduplicateById([...serverCats, ...localCats]);
-        localBeers = deduplicateById([...serverBeers, ...localBeers]);
-        localTastings = deduplicateById([...serverTastings, ...localTastings]);
-        localGlasses = deduplicateById([...serverGlasses, ...localGlasses]);
+        // Server-database is autoritair indien beschikbaar:
+        // Filter eventuele verouderde/vervuilde items van een ander gebruikers-ID uit
+        const cleanServerCats = serverCats.filter((c) => !c.userId || c.userId === userId);
+        const cleanServerBeers = serverBeers.filter((b) => !b.userId || b.userId === userId);
+        const cleanServerTastings = serverTastings.filter((t) => !t.userId || t.userId === userId);
+        const cleanServerGlasses = serverGlasses.filter((g) => !g.userId || g.userId === userId);
+
+        const cleanLocalCats = localCats.filter((c) => !c.userId || c.userId === userId);
+        const cleanLocalBeers = localBeers.filter((b) => !b.userId || b.userId === userId);
+        const cleanLocalTastings = localTastings.filter((t) => !t.userId || t.userId === userId);
+        const cleanLocalGlasses = localGlasses.filter((g) => !g.userId || g.userId === userId);
+
+        localCats = cleanServerCats.length > 0 ? deduplicateById(cleanServerCats) : cleanLocalCats;
+        localBeers = cleanServerBeers.length > 0 ? deduplicateById(cleanServerBeers) : cleanLocalBeers;
+        localTastings = cleanServerTastings.length > 0 ? deduplicateById(cleanServerTastings) : cleanLocalTastings;
+        localGlasses = cleanServerGlasses.length > 0 ? deduplicateById(cleanServerGlasses) : cleanLocalGlasses;
 
         const mem = getUserMemory(userId);
         mem.categories = localCats;
