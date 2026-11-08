@@ -391,14 +391,73 @@ const ALLOWED_RASTER_IMAGE_MIMES = new Set([
 ]);
 
 /**
- * Veilige client-side afbeeldingsvalidator & compressor.
- * Blokkeert SVG-bestanden (XSS-risico), niet-afbeeldingen, bestanden > 15 MB
- * en pixel-bombs (> 12000x12000 px). Converteert altijd naar een schone JPEG data-URI.
+ * Berekent de grootte van een data-URL in kilobytes (KB) voor weergave in de UI.
+ */
+export function formatDataUrlSizeKb(dataUrl?: string): string | null {
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+    return null;
+  }
+  const bytes = new Blob([dataUrl]).size;
+  const kb = bytes / 1024;
+  return kb < 10 ? `${kb.toFixed(1)} KB` : `${Math.round(kb)} KB`;
+}
+
+/**
+ * Hoogwaardige stapsgewijze downscaling (multi-step bicubic/high-smoothing) zodat
+ * tekst op bieretiketten en glaslogo's haarscherp blijft bij het verkleinen.
+ */
+function renderHighQualityScaledCanvas(
+  img: HTMLImageElement,
+  targetWidth: number,
+  targetHeight: number
+): HTMLCanvasElement {
+  let curWidth = img.width;
+  let curHeight = img.height;
+
+  // Stap-voor-stap halveren bij grote camera-foto's (bijv. 12MP/48MP/108MP) tegen aliasing
+  let workCanvas: HTMLCanvasElement | null = null;
+  while (curWidth * 0.5 > targetWidth * 1.15 && curHeight * 0.5 > targetHeight * 1.15) {
+    const nextWidth = Math.max(targetWidth, Math.round(curWidth * 0.5));
+    const nextHeight = Math.max(targetHeight, Math.round(curHeight * 0.5));
+    const stepCanvas = document.createElement('canvas');
+    stepCanvas.width = nextWidth;
+    stepCanvas.height = nextHeight;
+    const stepCtx = stepCanvas.getContext('2d');
+    if (!stepCtx) break;
+    stepCtx.imageSmoothingEnabled = true;
+    stepCtx.imageSmoothingQuality = 'high';
+    stepCtx.drawImage(workCanvas || img, 0, 0, nextWidth, nextHeight);
+    workCanvas = stepCanvas;
+    curWidth = nextWidth;
+    curHeight = nextHeight;
+  }
+
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = targetWidth;
+  finalCanvas.height = targetHeight;
+  const ctx = finalCanvas.getContext('2d');
+  if (ctx) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    // Vul transparante achtergronden met donker zink zodat PNG's netjes naar WebP/JPEG gaan
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+    ctx.drawImage(workCanvas || img, 0, 0, targetWidth, targetHeight);
+  }
+  return finalCanvas;
+}
+
+/**
+ * Veilige client-side afbeeldingsvalidator & slimme compressor.
+ * - Staat foto's toe tot maximaal 100 MB (inclusief directe mobiele camera-opnames).
+ * - Blokkeert SVG-bestanden (XSS-risico) en niet-afbeeldingen.
+ * - Comprimeert met behoud van scherpte (multi-step downscaling + WebP/JPEG optimalisatie)
+ *   zodat elke opgeslagen foto gegarandeerd <= 80 KB is (streefdoel ~45-68 KB).
  */
 export function validateAndCompressImageFile(
   file: File,
-  maxDimension = 700,
-  quality = 0.72
+  maxDimension = 850,
+  quality = 0.82
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!file || typeof file !== 'object') {
@@ -406,10 +465,10 @@ export function validateAndCompressImageFile(
       return;
     }
 
-    // 1. Blokkeer te grote bestanden (> 15 MB) tegen geheugen-DoS
-    const MAX_FILE_BYTES = 15 * 1024 * 1024;
+    // 1. Blokkeer bestanden > 100 MB
+    const MAX_FILE_BYTES = 100 * 1024 * 1024;
     if (typeof file.size === 'number' && (file.size <= 0 || file.size > MAX_FILE_BYTES)) {
-      reject(new Error('Afbeelding is te groot (maximaal 15 MB toegestaan).'));
+      reject(new Error('Afbeelding is te groot (maximaal 100 MB toegestaan).'));
       return;
     }
 
@@ -423,17 +482,153 @@ export function validateAndCompressImageFile(
       fileName.endsWith('.html') ||
       fileName.endsWith('.xml')
     ) {
-      reject(new Error('SVG-bestanden zijn om veiligheidsredenen niet toegestaan. Gebruik JPG, PNG of WebP.'));
+      reject(
+        new Error(
+          'SVG-bestanden zijn om veiligheidsredenen niet toegestaan. Gebruik een camera-foto, JPG, PNG of WebP.'
+        )
+      );
       return;
     }
 
-    if (mime && !ALLOWED_RASTER_IMAGE_MIMES.has(mime)) {
-      reject(new Error('Ongeldig afbeeldingsformaat. Kies een JPG, PNG of WebP afbeelding.'));
+    if (
+      mime &&
+      !ALLOWED_RASTER_IMAGE_MIMES.has(mime) &&
+      !mime.startsWith('image/')
+    ) {
+      reject(new Error('Ongeldig afbeeldingsformaat. Kies een JPG, PNG, WebP of camera-foto.'));
       return;
     }
 
-    const safeMaxDim = clampNumber(maxDimension, 100, 1600, 700);
-    const safeQuality = clampNumber(quality, 0.3, 0.92, 0.72);
+    // Harde bovengrens: 80 KB (81.920 bytes inclusief base64 data-URI), streefdoel <= 66 KB
+    const MAX_OUTPUT_BYTES = 80 * 1024;
+    const TARGET_OUTPUT_BYTES = 66 * 1024;
+
+    const initialMaxDim = clampNumber(maxDimension, 240, 1200, 850);
+    const initialQuality = clampNumber(quality, 0.45, 0.9, 0.82);
+
+    const processLoadedImage = (img: HTMLImageElement, cleanup?: () => void) => {
+      try {
+        // 3. Bescherm tegen extreme pixel-bombs (> 24000x24000 px)
+        if (
+          !Number.isFinite(img.width) ||
+          !Number.isFinite(img.height) ||
+          img.width < 1 ||
+          img.height < 1 ||
+          img.width > 24000 ||
+          img.height > 24000
+        ) {
+          if (cleanup) cleanup();
+          reject(new Error('Afbeeldingsafmetingen vallen buiten het veilige bereik.'));
+          return;
+        }
+
+        const encodeCanvas = (canvas: HTMLCanvasElement, q: number): string => {
+          // Probeer eerst WebP (geeft hogere scherpte bij 30-35% kleiner bestand dan JPEG)
+          try {
+            const webpUrl = canvas.toDataURL('image/webp', q);
+            if (webpUrl.startsWith('data:image/webp;base64,')) {
+              const jpegUrl = canvas.toDataURL('image/jpeg', q);
+              return webpUrl.length <= jpegUrl.length ? webpUrl : jpegUrl;
+            }
+          } catch {
+            // Fallback naar JPEG
+          }
+          return canvas.toDataURL('image/jpeg', q);
+        };
+
+        let currentMaxDim = initialMaxDim;
+        let bestDataUrl = '';
+
+        // Adaptieve compressie-lus: behoud maximale resolutie & kwaliteit, maar dwing <= 80 KB (liefst <= 66 KB) af
+        for (let scaleStep = 0; scaleStep < 7; scaleStep++) {
+          let width = img.width;
+          let height = img.height;
+          if (width >= height) {
+            if (width > currentMaxDim) {
+              height = Math.max(1, Math.round((height * currentMaxDim) / width));
+              width = currentMaxDim;
+            }
+          } else {
+            if (height > currentMaxDim) {
+              width = Math.max(1, Math.round((width * currentMaxDim) / height));
+              height = currentMaxDim;
+            }
+          }
+
+          const canvas = renderHighQualityScaledCanvas(img, width, height);
+          const qualitySteps =
+            scaleStep === 0
+              ? [initialQuality, 0.76, 0.70]
+              : [0.78, 0.72, 0.66, 0.60, 0.54];
+
+          for (const q of qualitySteps) {
+            const candidate = encodeCanvas(canvas, q);
+            bestDataUrl = candidate;
+            if (candidate.length <= TARGET_OUTPUT_BYTES) {
+              break;
+            }
+          }
+
+          if (bestDataUrl.length <= TARGET_OUTPUT_BYTES) {
+            break;
+          }
+          // Als we al onder de 80 KB zitten na een lichte schaalstap en goede kwaliteit, accepteren
+          if (scaleStep >= 1 && bestDataUrl.length <= MAX_OUTPUT_BYTES) {
+            break;
+          }
+
+          currentMaxDim = Math.max(220, Math.round(currentMaxDim * 0.84));
+        }
+
+        // Extra vangnet mocht een extreem detailrijke foto nog net boven 80 KB zitten
+        while (bestDataUrl.length > MAX_OUTPUT_BYTES && currentMaxDim > 160) {
+          currentMaxDim = Math.max(160, Math.round(currentMaxDim * 0.8));
+          let width = img.width;
+          let height = img.height;
+          if (width >= height) {
+            height = Math.max(1, Math.round((height * currentMaxDim) / width));
+            width = currentMaxDim;
+          } else {
+            width = Math.max(1, Math.round((width * currentMaxDim) / height));
+            height = currentMaxDim;
+          }
+          const canvas = renderHighQualityScaledCanvas(img, width, height);
+          bestDataUrl = encodeCanvas(canvas, 0.52);
+        }
+
+        if (cleanup) cleanup();
+
+        const sanitized = sanitizeImageUrl(bestDataUrl);
+        if (!sanitized) {
+          reject(new Error('Gecomprimeerde afbeelding kon niet worden gevalideerd.'));
+          return;
+        }
+        resolve(sanitized);
+      } catch {
+        if (cleanup) cleanup();
+        reject(new Error('Kan afbeelding niet comprimeren.'));
+      }
+    };
+
+    // Gebruik ObjectURL voor snelle en geheugenvriendelijke verwerking van grote foto's (tot 100 MB)
+    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      const objectUrl = URL.createObjectURL(file);
+      const cleanup = () => {
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          // ignore
+        }
+      };
+      const img = new Image();
+      img.onerror = () => {
+        cleanup();
+        reject(new Error('Bestand is geen geldige of ondersteunde afbeelding.'));
+      };
+      img.onload = () => processLoadedImage(img, cleanup);
+      img.src = objectUrl;
+      return;
+    }
 
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Kan het afbeeldingsbestand niet lezen.'));
@@ -443,55 +638,9 @@ export function validateAndCompressImageFile(
         reject(new Error('Ongeldige afbeeldingsdata.'));
         return;
       }
-
       const img = new Image();
       img.onerror = () => reject(new Error('Bestand is geen geldige afbeelding.'));
-      img.onload = () => {
-        // 3. Bescherm tegen decompression bombs / extreme dimensies
-        if (
-          !Number.isFinite(img.width) ||
-          !Number.isFinite(img.height) ||
-          img.width < 1 ||
-          img.height < 1 ||
-          img.width > 12000 ||
-          img.height > 12000
-        ) {
-          reject(new Error('Afbeeldingsafmetingen vallen buiten het veilige bereik.'));
-          return;
-        }
-
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > safeMaxDim) {
-            height = Math.max(1, Math.round((height * safeMaxDim) / width));
-            width = safeMaxDim;
-          }
-        } else {
-          if (height > safeMaxDim) {
-            width = Math.max(1, Math.round((width * safeMaxDim) / height));
-            height = safeMaxDim;
-          }
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Kan afbeelding niet verwerken.'));
-          return;
-        }
-
-        ctx.drawImage(img, 0, 0, width, height);
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', safeQuality);
-        const sanitized = sanitizeImageUrl(compressedDataUrl);
-        if (!sanitized) {
-          reject(new Error('Gecomprimeerde afbeelding kon niet worden gevalideerd.'));
-          return;
-        }
-        resolve(sanitized);
-      };
+      img.onload = () => processLoadedImage(img);
       img.src = result;
     };
     reader.readAsDataURL(file);

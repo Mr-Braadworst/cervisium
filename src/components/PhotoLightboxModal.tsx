@@ -17,8 +17,9 @@ import {
   Crosshair,
   Beer as BeerIcon,
   Upload,
+  Camera,
 } from 'lucide-react';
-import { validateAndCompressImageFile, sanitizeImageUrl } from '../utils/security';
+import { validateAndCompressImageFile, formatDataUrlSizeKb, sanitizeImageUrl } from '../utils/security';
 
 interface PhotoLightboxModalProps {
   isOpen: boolean;
@@ -77,6 +78,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Dragging support on preview
   const [isDragging, setIsDragging] = useState(false);
@@ -118,7 +120,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
     if (!file) return;
 
     try {
-      const compressedDataUrl = await validateAndCompressImageFile(file, 800, 0.75);
+      const compressedDataUrl = await validateAndCompressImageFile(file, 850, 0.82);
       setCurrentPhotoUrl(compressedDataUrl);
       setPosX(50);
       setPosY(50);
@@ -458,32 +460,49 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
                   </p>
                 </div>
 
-                {/* Upload / Replace Photo Option */}
-                <div>
+                {/* Upload / Replace Photo Option (Camera + Galerij) */}
+                <div className="space-y-2">
                   <input
-                    ref={fileInputRef}
+                    ref={cameraInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif"
+                    accept="image/*"
+                    capture="environment"
                     onChange={handleFileChange}
                     className="hidden"
                   />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full py-2.5 px-3.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 hover:border-amber-500/50 text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm"
-                  >
-                    {uploadSuccess ? (
-                      <>
-                        <Check className="w-4 h-4 text-emerald-400" />
-                        <span className="text-emerald-400">Nieuwe foto geladen!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="w-4 h-4 text-amber-400" />
-                        <span>Andere foto uploaden</span>
-                      </>
-                    )}
-                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => cameraInputRef.current?.click()}
+                      className="py-2.5 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                    >
+                      <Camera className="w-4 h-4 text-amber-400" />
+                      <span>Maak foto</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 hover:border-amber-500/50 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                    >
+                      <Upload className="w-4 h-4 text-amber-400" />
+                      <span>Kies foto</span>
+                    </button>
+                  </div>
+                  {uploadSuccess && (
+                    <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-emerald-400">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>
+                        Nieuwe foto geladen ({formatDataUrlSizeKb(currentPhotoUrl) || '≤ 80 KB'})!
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Vertical Slider (Y-axis) */}

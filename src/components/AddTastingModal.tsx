@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Beer, Tasting } from '../types';
-import { X, Star, MapPin, Calendar, PlusCircle, CheckCircle, Edit3 } from 'lucide-react';
+import { X, Star, MapPin, Calendar, PlusCircle, CheckCircle, Edit3, Camera, Image as ImageIcon } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { getScoreLabel, getScoreColorClass } from './RatingBadge';
 import { DatePickerInput } from './DatePickerInput';
 import { ConfirmModal } from './ConfirmModal';
-import { validateAndCompressImageFile, safeIsoDate } from '../utils/security';
+import { validateAndCompressImageFile, formatDataUrlSizeKb, safeIsoDate } from '../utils/security';
 
 interface AddTastingModalProps {
   isOpen: boolean;
@@ -95,7 +95,7 @@ export const AddTastingModal: React.FC<AddTastingModalProps> = ({
     ])
   );
 
-  const compressImage = (file: File, maxDimension = 600, quality = 0.7): Promise<string> =>
+  const compressImage = (file: File, maxDimension = 850, quality = 0.82): Promise<string> =>
     validateAndCompressImageFile(file, maxDimension, quality);
 
   if (!isOpen || !beer) return null;
@@ -295,15 +295,52 @@ export const AddTastingModal: React.FC<AddTastingModalProps> = ({
             </div>
           </div>
 
-          {/* Photo Upload */}
+          {/* Photo Upload (Direct met Camera of uit Galerij) */}
           <div>
-            <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-              Foto van deze sessie <span className="text-zinc-500 font-normal">(optioneel)</span>
-            </label>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-zinc-300">
+                Foto van deze sessie <span className="text-zinc-500 font-normal">(max 100 MB &bull; wordt slim &le; 80 KB)</span>
+              </label>
+              {photoUrl && formatDataUrlSizeKb(photoUrl) && (
+                <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                  ✓ {formatDataUrlSizeKb(photoUrl)}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Directe Camera-knop (opent op mobiel direct de achtercamera) */}
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif"
+                accept="image/*"
+                capture="environment"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) {
+                    try {
+                      const compressed = await compressImage(file);
+                      setPhotoUrl(compressed);
+                      setError(null);
+                    } catch (err: any) {
+                      setError(err?.message || 'Ongeldig afbeeldingsbestand.');
+                    }
+                  }
+                }}
+                className="hidden"
+                id="tasting-photo-camera"
+              />
+              <label
+                htmlFor="tasting-photo-camera"
+                className="cursor-pointer flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:border-amber-400 transition-colors text-xs sm:text-sm font-semibold"
+              >
+                <Camera className="w-4 h-4 text-amber-400" />
+                <span>Maak foto</span>
+              </label>
+
+              {/* Galerij / Bestand kiezen */}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,image/*"
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   e.target.value = '';
@@ -322,12 +359,14 @@ export const AddTastingModal: React.FC<AddTastingModalProps> = ({
               />
               <label
                 htmlFor="tasting-photo-upload"
-                className="cursor-pointer flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-zinc-300 hover:text-white hover:border-amber-500 transition-colors text-sm"
+                className="cursor-pointer flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-zinc-300 hover:text-white hover:border-amber-500 transition-colors text-xs sm:text-sm font-medium"
               >
-                <PlusCircle className="w-4 h-4" /> Foto toevoegen
+                <ImageIcon className="w-4 h-4 text-zinc-400" />
+                <span>Kies uit galerij</span>
               </label>
+
               {photoUrl && (
-                <div className="relative">
+                <div className="relative ml-1">
                   <img src={photoUrl} alt="Preview" className="w-16 h-16 rounded-xl object-cover border border-zinc-700" />
                   <button
                     type="button"

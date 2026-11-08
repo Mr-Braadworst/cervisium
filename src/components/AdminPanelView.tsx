@@ -239,9 +239,9 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     ? Math.min(100, (stats.totalBytesUsed / stats.quotaBytes) * 100)
     : 0;
 
-  // Schatting hoeveel bieren met foto (~120 KB per bier met gecomprimeerde foto) er nog bij passen
+  // Schatting hoeveel bieren met foto (max 80 KB per gecomprimeerde foto) er nog bij passen
   const estimatedRemainingBeersWithPhoto = stats
-    ? Math.floor(stats.totalBytesRemaining / (120 * 1024))
+    ? Math.floor(stats.totalBytesRemaining / (80 * 1024))
     : 0;
 
   const formatByMode = (bytes: number, isQuotaOrRemaining = false): string => {
@@ -770,7 +770,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                   {estimatedRemainingBeersWithPhoto.toLocaleString('nl-NL')}
                 </div>
                 <div className="text-xs text-zinc-400 flex items-center justify-between pt-1">
-                  <span>Bieren incl. foto (~120 KB/bier)</span>
+                  <span>Bieren incl. foto (max 80 KB/foto)</span>
                   <span className="text-amber-300 font-semibold">Ruim voldoende</span>
                 </div>
               </div>
