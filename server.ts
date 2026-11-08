@@ -20,6 +20,7 @@ import {
   sanitizeServerUserSettings,
   isValidServerId,
   isVerifiedAdminEmail,
+  getCanonicalUserIdForEmail,
 } from './server/security';
 import { centralDb } from './server/db';
 
@@ -417,6 +418,7 @@ async function startServer() {
       }
 
       const derivedId =
+        getCanonicalUserIdForEmail(cleanEmail) ||
         existingUser?.id ||
         `usr_${crypto.createHash('sha256').update(cleanEmail).digest('hex').slice(0, 24)}`;
 

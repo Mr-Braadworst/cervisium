@@ -24,6 +24,7 @@ import {
   clampNumber,
   sanitizeUserSettings,
   sanitizeBeerSession,
+  getCanonicalUserIdForEmail,
 } from '../utils/security';
 
 const USERS_STORAGE_KEY = 'bierlog_users_list';
@@ -109,38 +110,53 @@ export function getActiveUser(): UserAccount | null {
   const storedId = localStorage.getItem(ACTIVE_USER_ID_KEY);
   if (!storedId || !isValidEntityId(storedId)) return null;
   const users = getAllUsers();
-  const direct = users.find(u => u.id === storedId);
-  if (direct) return direct;
+  let direct = users.find(u => u.id === storedId);
 
   // Fallback: controleer of er een geldige gebruiker met storedId in de ruwe lijst staat
-  try {
-    const raw = localStorage.getItem(USERS_STORAGE_KEY);
-    if (raw) {
-      const parsed = safeJsonParse<unknown[]>(raw);
-      if (Array.isArray(parsed)) {
-        const foundRaw = parsed.find(
-          (u): u is Record<string, unknown> => Boolean(u && typeof u === 'object' && (u as any).id === storedId)
-        );
-        if (foundRaw) {
-          const userObj: UserAccount = {
-            id: String(foundRaw.id),
-            name: sanitizeString(foundRaw.name, 100, 'Bierliefhebber'),
-            googleName: foundRaw.googleName ? sanitizeString(foundRaw.googleName, 100) : undefined,
-            email: sanitizeString(foundRaw.email, 180, 'gebruiker@bierlog.nl'),
-            role: foundRaw.role === 'admin' ? 'admin' : foundRaw.role === 'user' ? 'user' : undefined,
-            avatarUrl: sanitizeImageUrl(foundRaw.avatarUrl),
-            createdAt: sanitizeString(foundRaw.createdAt, 60, new Date().toISOString()),
-          };
-          consolidateLocalAccountsForUser(userObj);
-          return userObj;
+  if (!direct) {
+    try {
+      const raw = localStorage.getItem(USERS_STORAGE_KEY);
+      if (raw) {
+        const parsed = safeJsonParse<unknown[]>(raw);
+        if (Array.isArray(parsed)) {
+          const foundRaw = parsed.find(
+            (u): u is Record<string, unknown> => Boolean(u && typeof u === 'object' && (u as any).id === storedId)
+          );
+          if (foundRaw) {
+            direct = {
+              id: String(foundRaw.id),
+              name: sanitizeString(foundRaw.name, 100, 'Bierliefhebber'),
+              googleName: foundRaw.googleName ? sanitizeString(foundRaw.googleName, 100) : undefined,
+              email: sanitizeString(foundRaw.email, 180, 'gebruiker@bierlog.nl'),
+              role: foundRaw.role === 'admin' ? 'admin' : foundRaw.role === 'user' ? 'user' : undefined,
+              avatarUrl: sanitizeImageUrl(foundRaw.avatarUrl),
+              createdAt: sanitizeString(foundRaw.createdAt, 60, new Date().toISOString()),
+            };
+          }
         }
       }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 
-  return users[0] || null;
+  if (!direct && users.length > 0) {
+    direct = users[0];
+  }
+
+  if (direct) {
+    if (!isPlaceholderUserEmail(direct.email)) {
+      const canonical = getCanonicalUserIdForEmail(direct.email);
+      if (canonical && direct.id !== canonical) {
+        const updated: UserAccount = { ...direct, id: canonical };
+        setActiveUser(updated);
+        return updated;
+      }
+    }
+    return direct;
+  }
+
+  return null;
 }
 
 function isPlaceholderUserEmail(email: string | undefined | null): boolean {
@@ -297,11 +313,15 @@ export function setActiveUser(user: UserAccount | null): void {
     localStorage.removeItem(ACTIVE_USER_ID_KEY);
     return;
   }
+  const cleanEmail = sanitizeString(user.email, 180, 'gebruiker@bierlog.nl');
+  const canonicalId =
+    (!isPlaceholderUserEmail(cleanEmail) && getCanonicalUserIdForEmail(cleanEmail)) ||
+    user.id;
   const sanitizedUser: UserAccount = {
-    id: user.id,
+    id: canonicalId,
     name: sanitizeString(user.name, 100, 'Bierliefhebber'),
     googleName: user.googleName ? sanitizeString(user.googleName, 100) : undefined,
-    email: sanitizeString(user.email, 180, 'gebruiker@bierlog.nl'),
+    email: cleanEmail,
     role: user.role === 'admin' ? 'admin' : user.role === 'user' ? 'user' : undefined,
     avatarUrl: sanitizeImageUrl(user.avatarUrl),
     createdAt: sanitizeString(user.createdAt, 60, new Date().toISOString()),

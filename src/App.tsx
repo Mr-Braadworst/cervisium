@@ -85,6 +85,7 @@ import { SettingsView } from './components/SettingsView';
 import { AdminPanelView } from './components/AdminPanelView';
 import { isSuperAdmin, AdminUserSummary } from './services/adminService';
 import { setLanguagePreference } from './utils/i18n';
+import { getCanonicalUserIdForEmail } from './utils/security';
 import { APP_VERSION, getFormattedVersionDate } from './version';
 import { Eye, ShieldCheck, ArrowLeft } from 'lucide-react';
 
@@ -182,21 +183,23 @@ export default function App() {
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        setFirebaseUid(fbUser.uid);
+        const cleanEmail = (fbUser.email || '').trim().toLowerCase();
+        const canonicalId = (cleanEmail && getCanonicalUserIdForEmail(cleanEmail)) || fbUser.uid;
+        setFirebaseUid(canonicalId);
         const stored = getActiveUser();
         const defaultName =
           (fbUser.displayName && fbUser.displayName.trim()) ||
-          fbUser.email?.split('@')[0] ||
+          cleanEmail.split('@')[0] ||
           'Bierliefhebber';
 
         const initialAccount: UserAccount = {
-          id: fbUser.uid,
+          id: canonicalId,
           name:
-            stored && stored.id === fbUser.uid && stored.name
+            stored && stored.id === canonicalId && stored.name
               ? stored.name
               : defaultName,
           googleName: defaultName,
-          email: fbUser.email || 'gebruiker@bierlog.nl',
+          email: cleanEmail || 'gebruiker@bierlog.nl',
           avatarUrl: fbUser.photoURL || undefined,
           createdAt: stored?.createdAt || new Date().toISOString(),
         };

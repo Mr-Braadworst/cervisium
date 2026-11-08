@@ -16,6 +16,7 @@ import {
   loginUser,
   syncUserWithServerDatabase,
 } from '../services/storage';
+import { getCanonicalUserIdForEmail } from '../utils/security';
 import { APP_VERSION, getFormattedVersionDate } from '../version';
 import {
   Beer,
@@ -381,8 +382,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           .replace(/\b\w/g, (c) => c.toUpperCase()) ||
         'Bierliefhebber';
 
+      const canonicalId = getCanonicalUserIdForEmail(cleanEmail) || user.uid;
       const fallbackAccount: UserAccount = {
-        id: user.uid,
+        id: canonicalId,
         name: resolvedName,
         googleName: resolvedName,
         email: user.email || cleanEmail,
@@ -574,10 +576,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       clearRateLimit();
       setRateLimit({ attempts: 0, lockedUntil: null });
 
+      const cleanEmail = (user.email || '').trim().toLowerCase();
+      const canonicalId = (cleanEmail && getCanonicalUserIdForEmail(cleanEmail)) || user.uid;
       const fallbackAccount: UserAccount = {
-        id: user.uid,
-        name: user.displayName || user.email?.split('@')[0] || 'Bierliefhebber',
-        email: user.email || 'gebruiker@bierlog.nl',
+        id: canonicalId,
+        name: user.displayName || cleanEmail.split('@')[0] || 'Bierliefhebber',
+        email: cleanEmail || 'gebruiker@bierlog.nl',
         avatarUrl: user.photoURL || undefined,
         createdAt: new Date().toISOString(),
       };

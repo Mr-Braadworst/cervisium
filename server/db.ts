@@ -7,6 +7,7 @@ import {
   sanitizeServerImageUrl,
   sanitizeServerUserSettings,
   isVerifiedAdminEmail,
+  getCanonicalUserIdForEmail,
 } from './security';
 
 const { Pool } = pg;
@@ -205,24 +206,21 @@ class CentralDatabaseClient {
    */
   public async consolidateDuplicateDatabaseUsers(): Promise<void> {
     if (!this.pool) {
-      const byEmail = new Map<string, string>();
       let primaryOwnerUid: string | null = null;
 
       for (const [uid, u] of Array.from(this.memoryUsers.entries())) {
         const cleanEmail = u.email.trim().toLowerCase();
         if (!isPlaceholderEmailValue(cleanEmail)) {
+          const canonicalId = getCanonicalUserIdForEmail(cleanEmail) || uid;
           if (isVerifiedAdminEmail(cleanEmail, true) || !primaryOwnerUid) {
-            primaryOwnerUid = uid;
+            primaryOwnerUid = canonicalId;
           }
-          const existingUid = byEmail.get(cleanEmail);
-          if (existingUid && existingUid !== uid) {
-            const keepUid = uid.startsWith('usr_') ? existingUid : uid;
-            const dropUid = keepUid === uid ? existingUid : uid;
-            this.mergeMemoryUserInto(dropUid, keepUid);
-            byEmail.set(cleanEmail, keepUid);
-            if (primaryOwnerUid === dropUid) primaryOwnerUid = keepUid;
-          } else {
-            byEmail.set(cleanEmail, uid);
+          if (uid !== canonicalId) {
+            const existingCanonical = this.memoryUsers.get(canonicalId);
+            if (!existingCanonical) {
+              this.memoryUsers.set(canonicalId, { ...u, id: canonicalId });
+            }
+            this.mergeMemoryUserInto(uid, canonicalId);
           }
         }
       }
@@ -240,41 +238,57 @@ class CentralDatabaseClient {
     try {
       const res = await this.pool.query('SELECT * FROM users ORDER BY last_active_at DESC NULLS LAST');
       const rows = res.rows;
-      if (rows.length <= 1) return;
+      if (rows.length === 0) return;
 
-      const byEmail = new Map<string, any>();
-      let primaryOwnerRow: any = null;
+      let primaryOwnerCanonicalId: string | null = null;
 
       for (const row of rows) {
         const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
         if (!isPlaceholderEmailValue(email)) {
-          const prev = byEmail.get(email);
-          if (prev && prev.id !== row.id) {
-            const keepRow =
-              String(prev.id).startsWith('usr_') && !String(row.id).startsWith('usr_') ? row : prev;
-            const dropRow = keepRow.id === prev.id ? row : prev;
-            await this.mergePostgresUserInto(dropRow.id, keepRow.id);
-            byEmail.set(email, keepRow);
-            if (isVerifiedAdminEmail(email, true) || !primaryOwnerRow) {
-              primaryOwnerRow = keepRow;
-            }
-          } else {
-            byEmail.set(email, row);
-            if (isVerifiedAdminEmail(email, true) || !primaryOwnerRow) {
-              primaryOwnerRow = row;
-            }
+          const canonicalId = getCanonicalUserIdForEmail(email);
+          if (!canonicalId) continue;
+
+          if (isVerifiedAdminEmail(email, true) || !primaryOwnerCanonicalId) {
+            primaryOwnerCanonicalId = canonicalId;
+          }
+
+          if (row.id !== canonicalId) {
+            await this.pool.query(
+              `
+              INSERT INTO users (id, email, name, google_name, role, password_hash, avatar_url, settings, created_at, last_active_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+              ON CONFLICT (id) DO UPDATE SET
+                email = EXCLUDED.email,
+                role = CASE WHEN EXCLUDED.role = 'admin' THEN 'admin' ELSE users.role END,
+                last_active_at = GREATEST(users.last_active_at, EXCLUDED.last_active_at)
+              `,
+              [
+                canonicalId,
+                email,
+                row.name,
+                row.google_name,
+                row.role,
+                row.password_hash,
+                row.avatar_url,
+                row.settings || '{}',
+                row.created_at,
+                row.last_active_at,
+              ]
+            );
+            await this.mergePostgresUserInto(row.id, canonicalId);
           }
         }
       }
 
-      // Koppel ook eventuele wees-/gast-accounts (waar email leeg of gebruiker@bierlog.nl is)
+      // Koppel ook eventuele wees-/gast-accounts (waar email leeg of placeholder is)
       // aan het eigenaar-account zodat bieren aangemaakt op IP:3000 nooit achterblijven op een gast-ID
-      if (primaryOwnerRow) {
-        for (const row of rows) {
-          const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
-          if (row.id !== primaryOwnerRow.id && isPlaceholderEmailValue(email)) {
-            await this.mergePostgresUserInto(row.id, primaryOwnerRow.id);
-          }
+      if (primaryOwnerCanonicalId) {
+        const remainingGuests = await this.pool.query(
+          "SELECT id, email FROM users WHERE id <> $1 AND (email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl')",
+          [primaryOwnerCanonicalId]
+        );
+        for (const guestRow of remainingGuests.rows) {
+          await this.mergePostgresUserInto(guestRow.id, primaryOwnerCanonicalId);
         }
       }
     } catch (err) {
@@ -411,9 +425,10 @@ class CentralDatabaseClient {
     lastActiveAt?: string;
   }): Promise<DbUserRecord> {
     await this.init();
-    const safeId = sanitizeServerId(user.id, 'usr');
     const rawEmail = sanitizeServerString(user.email, 180).toLowerCase();
     const safeEmail = isPlaceholderEmailValue(rawEmail) ? '' : rawEmail;
+    const canonicalId = (safeEmail && getCanonicalUserIdForEmail(safeEmail)) || sanitizeServerId(user.id, 'usr');
+    const safeId = canonicalId;
     const safeName = sanitizeServerString(user.name, 100, 'Bierliefhebber');
     const role: 'admin' | 'user' =
       user.role === 'admin' && isVerifiedAdminEmail(safeEmail, true) ? 'admin' : 'user';
@@ -435,15 +450,20 @@ class CentralDatabaseClient {
         let inheritedCreatedAt: string = user.createdAt || nowIso;
         let oldIdsToMerge: string[] = [];
 
+        if (user.id && user.id !== safeId && isValidServerId(user.id)) {
+          oldIdsToMerge.push(user.id);
+        }
+
         if (safeEmail) {
           const isOwner = isVerifiedAdminEmail(safeEmail, true);
           const emailCheck = await client.query(
             `
             SELECT * FROM users
             WHERE LOWER(email) = $1
-               OR ($2::boolean = true AND (email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl'))
+               OR id = $2
+               OR ($3::boolean = true AND (email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl'))
             `,
-            [safeEmail, isOwner]
+            [safeEmail, user.id, isOwner]
           );
           for (const existingRow of emailCheck.rows) {
             if (existingRow.id !== safeId) {
@@ -515,6 +535,7 @@ class CentralDatabaseClient {
 
         // Verplaats alle bieren, proefnotities, glazen en categorieën van eventuele oude ID's naar dit account
         for (const oldId of oldIdsToMerge) {
+          if (!oldId || oldId === safeId) continue;
           await client.query(
             `
             INSERT INTO user_records (id, user_id, collection_type, payload, updated_at)
@@ -666,9 +687,25 @@ class CentralDatabaseClient {
     await this.repairCrossAccountContamination();
 
     if (this.pool) {
+      const userRes = await this.pool.query('SELECT id, email, role FROM users WHERE id = $1 LIMIT 1', [userId]);
+      const userRow = userRes.rows[0];
+      const userEmail = typeof userRow?.email === 'string' && !isPlaceholderEmailValue(userRow.email)
+        ? userRow.email.trim().toLowerCase()
+        : null;
+      const isOwner = Boolean(userEmail && isVerifiedAdminEmail(userEmail, true)) || userRow?.role === 'admin';
+      const canonicalId = userEmail ? getCanonicalUserIdForEmail(userEmail) : userId;
+
       const res = await this.pool.query(
-        'SELECT collection_type, payload FROM user_records WHERE user_id = $1',
-        [userId]
+        `
+        SELECT DISTINCT ON (collection_type, payload->>'id') collection_type, payload
+        FROM user_records
+        WHERE user_id = $1
+           OR ($2::text IS NOT NULL AND user_id = $2)
+           OR ($3::text IS NOT NULL AND user_id IN (SELECT id FROM users WHERE LOWER(email) = LOWER($3)))
+           OR ($4::boolean = true AND user_id IN (SELECT id FROM users WHERE email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl'))
+        ORDER BY collection_type, payload->>'id', updated_at DESC
+        `,
+        [userId, canonicalId, userEmail, isOwner]
       );
       const grouped: Record<string, Array<Record<string, unknown>>> = {
         categories: [],

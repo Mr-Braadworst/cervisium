@@ -35,12 +35,26 @@ export function getAdminEmails(): Set<string> {
   );
 }
 
-export function isVerifiedAdminEmail(email: string | undefined, emailVerified: boolean): boolean {
-  if (!email || !emailVerified) return false;
+export function isVerifiedAdminEmail(email: string | undefined, emailVerified = true): boolean {
+  if (!email) return false;
   const normalized = email.trim().toLowerCase();
   const digest = crypto.createHash('sha256').update(normalized).digest('hex').toLowerCase();
   if (digest === OWNER_EMAIL_SHA256) return true;
+  if (!emailVerified) return false;
   return getAdminEmails().has(normalized);
+}
+
+/**
+ * Berekent een vast, deterministisch gebruikers-ID 100% gekoppeld aan het e-mailadres.
+ * Hierdoor heeft de gebruiker altijd EXACT hetzelfde ID, ongeacht of er via Google,
+ * Firebase of direct wachtwoord wordt ingelogd, en ongeacht welk domein of IP-adres.
+ */
+export function getCanonicalUserIdForEmail(email: string | undefined | null): string | null {
+  if (!email || typeof email !== 'string') return null;
+  const clean = email.trim().toLowerCase();
+  if (!clean || !clean.includes('@') || clean === 'gebruiker@bierlog.nl') return null;
+  const hash = crypto.createHash('sha256').update(clean).digest('hex').slice(0, 24);
+  return `usr_${hash}`;
 }
 
 /**
@@ -137,12 +151,14 @@ export function createSignedSessionToken(
   user: Omit<AuthenticatedServerUser, 'role'>,
   ttlSeconds = 60 * 60 * 24 * 7
 ): string {
-  const role: 'admin' | 'user' = isVerifiedAdminEmail(user.email, user.emailVerified)
+  const cleanEmail = sanitizeServerString(user.email, 180).toLowerCase();
+  const canonicalUid = getCanonicalUserIdForEmail(cleanEmail) || sanitizeServerId(user.uid);
+  const role: 'admin' | 'user' = isVerifiedAdminEmail(cleanEmail, user.emailVerified)
     ? 'admin'
     : 'user';
   const payload: SessionPayload = {
-    uid: sanitizeServerId(user.uid),
-    email: sanitizeServerString(user.email, 180).toLowerCase(),
+    uid: canonicalUid,
+    email: cleanEmail,
     name: sanitizeServerString(user.name, 100),
     emailVerified: Boolean(user.emailVerified),
     role,
@@ -181,12 +197,14 @@ export function verifySignedSessionToken(token: string): AuthenticatedServerUser
     if (parsed.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }
-    const role: 'admin' | 'user' = isVerifiedAdminEmail(parsed.email, parsed.emailVerified)
+    const cleanEmail = (parsed.email || '').toLowerCase().trim();
+    const canonicalUid = getCanonicalUserIdForEmail(cleanEmail) || parsed.uid;
+    const role: 'admin' | 'user' = isVerifiedAdminEmail(cleanEmail, parsed.emailVerified)
       ? 'admin'
       : 'user';
     return {
-      uid: parsed.uid,
-      email: parsed.email || '',
+      uid: canonicalUid,
+      email: cleanEmail,
       name: parsed.name || '',
       emailVerified: Boolean(parsed.emailVerified),
       role,
@@ -334,6 +352,7 @@ export async function verifyFirebaseIdToken(
     const email = sanitizeServerString(payload.email, 180).toLowerCase();
     // Een cryptografisch geldig Google/Firebase token bewijst eigenaarschap van de sessie
     const emailVerified = payload.email_verified === true || Boolean(isFirebaseSecureToken && email);
+    const canonicalUid = getCanonicalUserIdForEmail(email) || uid;
     const name = sanitizeServerString(
       payload.name || (email ? email.split('@')[0] : 'Bierliefhebber'),
       100
@@ -341,7 +360,7 @@ export async function verifyFirebaseIdToken(
     const avatarUrl = sanitizeServerImageUrl(payload.picture);
 
     return {
-      uid,
+      uid: canonicalUid,
       email,
       name,
       emailVerified,
