@@ -48,6 +48,42 @@ async function startServer() {
 
   // Beveiligingsheaders & pad-blokkade op elke request
   app.disable('x-powered-by');
+  app.set('trust proxy', 1);
+
+  // Canonical Domain Redirect: leid www.cervisium.nl ALTIJD direct (301) om naar cervisium.nl
+  // zodat er nooit twee gescheiden browsersessies, gesplitste localStorages of dubbele accounts ontstaan
+  app.use((req, res, next) => {
+    const rawHost = ((req.headers['x-forwarded-host'] as string) || req.headers.host || '').toLowerCase().split(':')[0];
+    if (rawHost === 'www.cervisium.nl') {
+      const proto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+      const targetProto = proto === 'http' && !req.headers['x-forwarded-proto'] ? 'http' : 'https';
+      return res.redirect(301, `${targetProto}://cervisium.nl${req.originalUrl || req.url || '/'}`);
+    }
+    next();
+  });
+
+  function setSessionCookie(response: express.Response, request: express.Request, signedCookieToken: string, maxAge = 60 * 60 * 24 * 7) {
+    const isSecure = Boolean(request.secure || request.headers['x-forwarded-proto'] === 'https');
+    const rawHost = ((request.headers['x-forwarded-host'] as string) || request.headers.host || request.hostname || '').toLowerCase().split(':')[0];
+    const isCervisiumDomain = rawHost === 'cervisium.nl' || rawHost.endsWith('.cervisium.nl');
+    const domainAttr = isCervisiumDomain ? '; Domain=.cervisium.nl' : '';
+
+    response.setHeader(
+      'Set-Cookie',
+      `bierlog_session=${encodeURIComponent(signedCookieToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isSecure ? '; Secure' : ''}${domainAttr}`
+    );
+  }
+
+  function clearSessionCookie(response: express.Response, request: express.Request) {
+    const rawHost = ((request.headers['x-forwarded-host'] as string) || request.headers.host || request.hostname || '').toLowerCase().split(':')[0];
+    const isCervisiumDomain = rawHost === 'cervisium.nl' || rawHost.endsWith('.cervisium.nl');
+    const cookies = ['bierlog_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'];
+    if (isCervisiumDomain) {
+      cookies.push('bierlog_session=; Path=/; Domain=.cervisium.nl; HttpOnly; SameSite=Lax; Max-Age=0');
+    }
+    response.setHeader('Set-Cookie', cookies);
+  }
+
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -287,11 +323,7 @@ async function startServer() {
         emailVerified: verifiedGoogleUser.emailVerified,
       });
 
-      const isSecure = Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
-      res.setHeader(
-        'Set-Cookie',
-        `bierlog_session=${encodeURIComponent(signedCookieToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}${isSecure ? '; Secure' : ''}`
-      );
+      setSessionCookie(res, req, signedCookieToken);
 
       const records = await centralDb.getUserRecords(dbUser.id);
       res.json({
@@ -411,11 +443,7 @@ async function startServer() {
         emailVerified: isVerifiedExistingAdmin,
       });
 
-      const isSecure = Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
-      res.setHeader(
-        'Set-Cookie',
-        `bierlog_session=${encodeURIComponent(signedCookieToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}${isSecure ? '; Secure' : ''}`
-      );
+      setSessionCookie(res, req, signedCookieToken);
 
       const records = await centralDb.getUserRecords(dbUser.id);
       res.json({
@@ -461,11 +489,7 @@ async function startServer() {
         emailVerified: user.emailVerified,
       });
 
-      const isSecure = Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
-      res.setHeader(
-        'Set-Cookie',
-        `bierlog_session=${encodeURIComponent(signedCookieToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}${isSecure ? '; Secure' : ''}`
-      );
+      setSessionCookie(res, req, signedCookieToken);
 
       res.json({
         authenticated: true,
@@ -482,11 +506,8 @@ async function startServer() {
     }
   });
 
-  app.post('/api/auth/logout', (_req, res) => {
-    res.setHeader(
-      'Set-Cookie',
-      'bierlog_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'
-    );
+  app.post('/api/auth/logout', (req, res) => {
+    clearSessionCookie(res, req);
     res.json({ authenticated: false });
   });
 
@@ -930,6 +951,23 @@ async function startServer() {
     }
   });
 
+  app.get('/api/version', (_req, res) => {
+    try {
+      const versionPath = path.join(__dirname, 'src', 'version.json');
+      if (fs.existsSync(versionPath)) {
+        const parsed = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+        res.json({
+          version: parsed.version || '2.6.0',
+          updatedAt: parsed.updatedAt || new Date().toISOString(),
+        });
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    res.json({ version: '2.6.0', updatedAt: new Date().toISOString() });
+  });
+
   // ==========================================================================
   // 5. FRONTEND SERVERING (Vite middleware in dev, statische dist/ in prod)
   // ==========================================================================
@@ -942,7 +980,26 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath, { index: false, dotfiles: 'deny' }));
+    app.use(
+      express.static(distPath, {
+        index: false,
+        dotfiles: 'deny',
+        setHeaders: (res, filePath) => {
+          const lower = filePath.toLowerCase();
+          if (lower.endsWith('.webmanifest') || lower.endsWith('manifest.json')) {
+            res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          } else if (
+            lower.endsWith('/sw.js') ||
+            lower.endsWith('/registersw.js') ||
+            /workbox-.*\.js$/i.test(lower)
+          ) {
+            res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          }
+        },
+      })
+    );
     app.get('*', (_req, res) => {
       const indexPath = path.join(distPath, 'index.html');
       const runtimeApiKey = (

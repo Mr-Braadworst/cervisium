@@ -84,6 +84,7 @@ import { SettingsView } from './components/SettingsView';
 import { AdminPanelView } from './components/AdminPanelView';
 import { isSuperAdmin, AdminUserSummary } from './services/adminService';
 import { setLanguagePreference } from './utils/i18n';
+import { APP_VERSION, getFormattedVersionDate } from './version';
 import { Eye, ShieldCheck, ArrowLeft } from 'lucide-react';
 
 function isClientFirestoreEnabled(): boolean {
@@ -110,6 +111,29 @@ export default function App() {
     activeUser ? getGlasses(activeUser.id) : []
   );
   const [pubDeals, setPubDeals] = useState<PubGlassDeal[]>(() => getStoredPubDeals());
+  const [appVersion, setAppVersion] = useState<string>(APP_VERSION);
+  const [versionDate, setVersionDate] = useState<string>(() => getFormattedVersionDate());
+
+  useEffect(() => {
+    fetch('/api/version')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.version) setAppVersion(String(data.version));
+        if (data?.updatedAt) {
+          const d = new Date(data.updatedAt);
+          if (!Number.isNaN(d.getTime())) {
+            setVersionDate(
+              d.toLocaleDateString('nl-NL', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+              })
+            );
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Navigation tab (starts on the user's configured defaultStartTab)
   const [activeTab, setActiveTab] = useState<NavTab>(() =>
@@ -1049,10 +1073,21 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-zinc-800/80 bg-zinc-950 py-6 text-center text-xs text-zinc-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span className="font-semibold text-zinc-400">Cervisium</span>
+            <span translate="no" data-no-translate="true" className="notranslate font-semibold text-zinc-400">
+              Cervisium
+            </span>
             <span>&bull; Jouw persoonlijke craft bier &amp; proefnotities app</span>
+            <span
+              translate="no"
+              data-no-translate="true"
+              className="notranslate inline-flex items-center px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400"
+              title={versionDate ? `Laatst bijgewerkt op ${versionDate}` : 'Huidige applicatieversie'}
+            >
+              v{appVersion}
+              {versionDate ? ` (${versionDate})` : ''}
+            </span>
           </div>
           <div className="flex items-center gap-4 text-[11px] text-zinc-500">
             <span>Ingelogd: {activeUser.email}</span>

@@ -13,6 +13,7 @@ import {
   loginUser,
   syncUserWithServerDatabase,
 } from '../services/storage';
+import { APP_VERSION, getFormattedVersionDate } from '../version';
 import {
   Beer,
   Trophy,
@@ -278,6 +279,59 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     setResetSuccessMessage(null);
     setIsSigningIn(true);
 
+    const tryDirectDatabaseAuth = async (): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/auth/account', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password,
+            name: displayName.trim() || undefined,
+          }),
+        });
+
+        if (res.ok) {
+          const data = (await res.json()) as {
+            user: UserAccount;
+            records?: {
+              categories?: unknown[];
+              beers?: unknown[];
+              tastings?: unknown[];
+              glasses?: unknown[];
+            };
+          };
+
+          const serverUser: UserAccount = {
+            id: data.user.id,
+            name: data.user.name,
+            googleName: data.user.googleName,
+            email: data.user.email,
+            role: data.user.role,
+            avatarUrl: data.user.avatarUrl,
+            createdAt: data.user.createdAt || new Date().toISOString(),
+          };
+
+          clearRateLimit();
+          setRateLimit({ attempts: 0, lockedUntil: null });
+          loginUser(serverUser);
+          await syncUserWithServerDatabase(serverUser);
+          onLogin(serverUser);
+          return true;
+        }
+
+        const errData = (await res.json().catch(() => ({}))) as { error?: string };
+        if (errData?.error && (res.status === 401 || res.status === 403)) {
+          registerFailedAttempt(errData.error);
+          return true;
+        }
+      } catch {
+        // Direct database endpoint offline
+      }
+      return false;
+    };
+
     try {
       let userCredential;
       if (authMode === 'register') {
@@ -326,6 +380,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       const verifiedAccount = await verifyAndSyncWithBackend(idToken, fallbackAccount);
       onLogin(verifiedAccount);
     } catch (err: unknown) {
+      // Probeer directe inlog op de centrale server-database (werkt op elk IP en poort)
+      const directHandled = await tryDirectDatabaseAuth();
+      if (directHandled) {
+        return;
+      }
+
       const msg = err instanceof Error ? err.message : String(err);
 
       if (msg.includes('operation-not-allowed')) {
@@ -793,6 +853,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <span className="text-[11px] font-bold text-zinc-300 block">Max 5 Pogingen</span>
             <span className="text-[10px] text-zinc-500">Beveiligde login</span>
           </div>
+        </div>
+
+        {/* Version Number Footer */}
+        <div
+          translate="no"
+          data-no-translate="true"
+          className="notranslate text-center pt-1 text-[11px] font-mono text-zinc-500"
+        >
+          Cervisium v{APP_VERSION}
+          {getFormattedVersionDate() ? ` • ${getFormattedVersionDate()}` : ''}
         </div>
       </div>
     </div>

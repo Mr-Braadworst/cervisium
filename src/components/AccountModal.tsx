@@ -147,45 +147,58 @@ export const AccountModal: React.FC<AccountModalProps> = ({
           </span>
         </div>
 
-        {/* Switch Account List */}
-        <div className="mt-5">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-              Beschikbare Google Profielen ({users.length})
-            </span>
-          </div>
+        {/* Switch Account List (uitsluitend zichtbaar als er meerdere verschillende accounts bestaan) */}
+        {(() => {
+          const distinctOtherUsers = users.filter((u) => {
+            if (u.id === activeUser.id) return false;
+            const uEmail = (u.email || '').trim().toLowerCase();
+            const activeEmail = (activeUser.email || '').trim().toLowerCase();
+            return !uEmail || uEmail !== activeEmail;
+          });
 
-          <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-            {users.map((u) => {
-              const isCurrent = u.id === activeUser.id;
-              return (
-                <button
-                  key={u.id}
-                  onClick={() => {
-                    onSwitchUser(u);
-                    onClose();
-                  }}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-xl border transition-colors text-left ${
-                    isCurrent
-                      ? 'bg-amber-500/10 border-amber-500/40 text-amber-300 font-semibold'
-                      : 'bg-zinc-950/40 border-zinc-800/80 text-zinc-300 hover:bg-zinc-800/60'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300">
-                      {u.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium">{u.name}</div>
-                      <div className="text-[10px] text-zinc-500">{u.email}</div>
-                    </div>
-                  </div>
-                  {isCurrent && <Check className="w-4 h-4 text-amber-400" />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+          if (distinctOtherUsers.length === 0) return null;
+
+          return (
+            <div className="mt-5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                  Wissel van Profiel ({distinctOtherUsers.length + 1})
+                </span>
+              </div>
+
+              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                {[activeUser, ...distinctOtherUsers].map((u) => {
+                  const isCurrent = u.id === activeUser.id;
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => {
+                        onSwitchUser(u);
+                        onClose();
+                      }}
+                      className={`w-full flex items-center justify-between p-2.5 rounded-xl border transition-colors text-left cursor-pointer ${
+                        isCurrent
+                          ? 'bg-amber-500/10 border-amber-500/40 text-amber-300 font-semibold'
+                          : 'bg-zinc-950/40 border-zinc-800/80 text-zinc-300 hover:bg-zinc-800/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300">
+                          {u.name.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="text-xs font-medium">{u.name}</div>
+                          <div className="text-[10px] text-zinc-500">{u.email}</div>
+                        </div>
+                      </div>
+                      {isCurrent && <Check className="w-4 h-4 text-amber-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Data Backup & Export / Import */}
         <div className="mt-6 pt-4 border-t border-zinc-800">

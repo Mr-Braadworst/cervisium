@@ -73,6 +73,53 @@ volumes:
 
 ---
 
+## 🌐 Eigen Domein (cervisium.nl) & Oplossing "Te vaak omgeleid" (Redirect Loop)
+
+Krijg je op `cervisium.nl` de foutmelding **"Deze pagina werkt niet — heeft je te vaak omgeleid" (`ERR_TOO_MANY_REDIRECTS`)**?
+
+### Oorzaak van het probleem:
+1. Je domein loopt via **Cloudflare** met SSL op **Flexible**.
+2. Bij Flexible verbindt Cloudflare via **poort 80 (HTTP)** met jouw server (`212.227.151.8`).
+3. Op je server staat Nginx op poort 80 momenteel ingesteld om een **301 redirect naar https://** te sturen, in plaats van de bezoeker door te schakelen naar Docker poort 3000.
+4. Hierdoor stuurt Nginx Cloudflare terug naar `https://`, Cloudflare verbindt opnieuw met poort 80, Nginx stuurt weer een redirect, wat resulteert in een oneindige lus.
+
+### Oplossing in 1 minuut op je Ubuntu server:
+Kopieer en plak dit commando op je Ubuntu VPS om Nginx direct goed in te stellen:
+
+```bash
+sudo tee /etc/nginx/sites-available/cervisium > /dev/null << 'EOF'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name cervisium.nl www.cervisium.nl;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        client_max_body_size 150M;
+    }
+}
+EOF
+
+sudo ln -sf /etc/nginx/sites-available/cervisium /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### In Cloudflare (belangrijk):
+- Ga naar **Cloudflare Dashboard → SSL/TLS**.
+- Als je **geen** eigen SSL-certificaat op de VPS hebt geïnstalleerd: zet de SSL/TLS encryptiemodus op **Flexible**.
+- Zorg dat onder **SSL/TLS → Edge Certificates** de optie **Always Use HTTPS** ingeschakeld staat in Cloudflare (Cloudflare regelt dan het veilige slotje voor de bezoeker, en Nginx stuurt het direct door naar poort 3000).
+
+---
+
 ## 🔑 Inloggen via Google ZONDER Google's Database (Firestore)
 
 **Ja, je kunt mensen via Google laten inloggen zónder dat je de database van Google (Cloud Firestore) gebruikt!**

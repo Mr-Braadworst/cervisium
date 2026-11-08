@@ -109,7 +109,38 @@ export function getActiveUser(): UserAccount | null {
   const storedId = localStorage.getItem(ACTIVE_USER_ID_KEY);
   if (!storedId || !isValidEntityId(storedId)) return null;
   const users = getAllUsers();
-  return users.find(u => u.id === storedId) || null;
+  const direct = users.find(u => u.id === storedId);
+  if (direct) return direct;
+
+  // Fallback: controleer of er een geldige gebruiker met storedId in de ruwe lijst staat
+  try {
+    const raw = localStorage.getItem(USERS_STORAGE_KEY);
+    if (raw) {
+      const parsed = safeJsonParse<unknown[]>(raw);
+      if (Array.isArray(parsed)) {
+        const foundRaw = parsed.find(
+          (u): u is Record<string, unknown> => Boolean(u && typeof u === 'object' && (u as any).id === storedId)
+        );
+        if (foundRaw) {
+          const userObj: UserAccount = {
+            id: String(foundRaw.id),
+            name: sanitizeString(foundRaw.name, 100, 'Bierliefhebber'),
+            googleName: foundRaw.googleName ? sanitizeString(foundRaw.googleName, 100) : undefined,
+            email: sanitizeString(foundRaw.email, 180, 'gebruiker@bierlog.nl'),
+            role: foundRaw.role === 'admin' ? 'admin' : foundRaw.role === 'user' ? 'user' : undefined,
+            avatarUrl: sanitizeImageUrl(foundRaw.avatarUrl),
+            createdAt: sanitizeString(foundRaw.createdAt, 60, new Date().toISOString()),
+          };
+          consolidateLocalAccountsForUser(userObj);
+          return userObj;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return users[0] || null;
 }
 
 function isPlaceholderUserEmail(email: string | undefined | null): boolean {
@@ -277,7 +308,19 @@ export function getAllUsers(): UserAccount[] {
         createdAt: sanitizeString(u.createdAt, 60, new Date().toISOString()),
       }));
 
-    // Dedupliceer op e-mailadres zodat hetzelfde account nooit 2x terugkomt
+    const storedActiveId = localStorage.getItem(ACTIVE_USER_ID_KEY);
+
+    // Sorteer zodat het actieve account en echte geverifieerde accounts voorrang krijgen bij deduplicatie op e-mail
+    mapped.sort((a, b) => {
+      if (a.id === storedActiveId) return -1;
+      if (b.id === storedActiveId) return 1;
+      const aIsGuest = a.id.startsWith('usr_');
+      const bIsGuest = b.id.startsWith('usr_');
+      if (aIsGuest !== bIsGuest) return aIsGuest ? 1 : -1;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    });
+
+    // Dedupliceer op e-mailadres zodat één persoon nooit twee accounts heeft
     const out: UserAccount[] = [];
     const seenEmails = new Set<string>();
     const seenIds = new Set<string>();
@@ -289,6 +332,16 @@ export function getAllUsers(): UserAccount[] {
       if (emailLower) seenEmails.add(emailLower);
       out.push(u);
     }
+
+    // Houd USERS_STORAGE_KEY altijd synchroon met de gededupliceerde lijst
+    if (out.length !== mapped.length) {
+      try {
+        localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(out));
+      } catch {
+        // ignore quota
+      }
+    }
+
     return out;
   } catch {
     return [];
@@ -1200,64 +1253,6 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
           ? data.foreignRecordIds.filter((id): id is string => typeof id === 'string')
           : []
       );
-
-      // Indien Firestore actief is, controleer óók in Firestore welke record-ID's van andere gebruikers zijn
-      if (isClientFirestoreEnabled() && auth.currentUser) {
-        try {
-          const withFastTimeout = <T>(p: Promise<T>, ms = 2500): Promise<T | null> =>
-            Promise.race([
-              p,
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-            ]);
-
-          const [allBeersSnap, allTastingsSnap, allGlassesSnap, ownBeersSnap] = await Promise.all([
-            withFastTimeout(getDocs(collectionGroup(db, 'beers'))),
-            withFastTimeout(getDocs(collectionGroup(db, 'tastings'))),
-            withFastTimeout(getDocs(collectionGroup(db, 'glasses'))),
-            withFastTimeout(getDocs(collection(db, 'users', userId, 'beers'))),
-          ]);
-
-          const extractOwnerUid = (docRef: { parent: { parent: { id: string } | null } }): string =>
-            docRef.parent.parent?.id || '';
-
-          allBeersSnap?.forEach((d) => {
-            const owner = extractOwnerUid(d.ref);
-            if (owner && owner !== userId) foreignSet.add(d.id);
-          });
-          allTastingsSnap?.forEach((d) => {
-            const owner = extractOwnerUid(d.ref);
-            if (owner && owner !== userId) foreignSet.add(d.id);
-          });
-          allGlassesSnap?.forEach((d) => {
-            const owner = extractOwnerUid(d.ref);
-            if (owner && owner !== userId) foreignSet.add(d.id);
-          });
-
-          // Als het eigen Firestore account bieren bevat, verwijder dan eventuele vervuilde items
-          // die van andere gebruikers zijn óf alleen als spooksleutel in localStorage stonden
-          if (ownBeersSnap) {
-            const ownFirestoreBeerIds = new Set<string>();
-            ownBeersSnap.forEach((d) => {
-              if (foreignSet.has(d.id)) {
-                void deleteDoc(doc(db, 'users', userId, 'beers', d.id)).catch(() => {});
-              } else {
-                ownFirestoreBeerIds.add(d.id);
-              }
-            });
-            if (ownFirestoreBeerIds.size > 0) {
-              localBeers = localBeers.filter((b) => ownFirestoreBeerIds.has(b.id));
-              if (data.records && Array.isArray(data.records.beers)) {
-                data.records.beers = data.records.beers.filter((b) => {
-                  const id = b && typeof b === 'object' ? String((b as any).id || '') : '';
-                  return ownFirestoreBeerIds.has(id);
-                });
-              }
-            }
-          }
-        } catch {
-          // Niet-blokkerend
-        }
-      }
 
       if (foreignSet.size > 0) {
         localBeers = localBeers.filter((b) => !foreignSet.has(b.id));
