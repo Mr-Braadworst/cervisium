@@ -33,6 +33,7 @@ import {
   sanitizeImportedGlass,
   sanitizePubDeal,
   generateSecureId,
+  getCanonicalUserIdForEmail,
 } from '../utils/security';
 
 // SHA-256 hash van het geverifieerde eigenaar-e-mailadres (zodat het e-mailadres nergens in platte tekst in de repo staat)
@@ -160,14 +161,18 @@ export function isSuperAdmin(user: UserAccount | null | undefined): boolean {
 
   const fbUser = auth.currentUser;
   if (fbUser) {
+    const isMatchingUser =
+      user.id === fbUser.uid ||
+      user.id === getCanonicalUserIdForEmail(fbUser.email) ||
+      (user.email && fbUser.email && user.email.toLowerCase() === fbUser.email.toLowerCase());
     return Boolean(
-      fbUser.emailVerified &&
+      (fbUser.emailVerified || !fbUser.isAnonymous) &&
       isOwnerEmail(fbUser.email) &&
-      user.id === fbUser.uid
+      isMatchingUser
     );
   }
 
-  return user.role === 'admin' && isOwnerEmail(user.email);
+  return isOwnerEmail(user.email);
 }
 
 function isClientFirestoreEnabled(): boolean {

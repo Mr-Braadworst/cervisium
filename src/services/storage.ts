@@ -213,7 +213,7 @@ export function consolidateLocalAccountsForUser(targetUser: UserAccount): void {
     }
 
     // Controleer ook op losse bierlog_beers_<uid> sleutels in localStorage die op een eerder ID stonden
-    if (targetEmail && otherRealUserIds.size === 0) {
+    if (targetEmail) {
       const prefixes = [
         'bierlog_beers_',
         'bierlog_categories_',
