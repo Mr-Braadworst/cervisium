@@ -951,16 +951,263 @@ async function startServer() {
     }
   });
 
-  app.get('/api/version', (_req, res) => {
+  function loadPersistentFirebaseEnv() {
+    const envFiles = [
+      '/data/.firebase_env',
+      '/data/.env',
+      '/var/lib/postgresql/data/.firebase_env',
+      path.join(__dirname, '.env'),
+    ];
+    for (const filePath of envFiles) {
+      try {
+        if (!fs.existsSync(filePath)) continue;
+        const content = fs.readFileSync(filePath, 'utf8');
+        for (const rawLine of content.split(/\r?\n/)) {
+          const line = rawLine.trim();
+          if (!line || line.startsWith('#')) continue;
+          const cleaned = line.replace(/^export\s+/, '');
+          const eqIdx = cleaned.indexOf('=');
+          if (eqIdx <= 0) continue;
+          const key = cleaned.slice(0, eqIdx).trim();
+          let val = cleaned.slice(eqIdx + 1).trim();
+          if (
+            (val.startsWith("'") && val.endsWith("'")) ||
+            (val.startsWith('"') && val.endsWith('"'))
+          ) {
+            val = val.slice(1, -1).trim();
+          }
+          if (
+            key.startsWith('FIREBASE_') ||
+            key.startsWith('VITE_FIREBASE_') ||
+            key === 'GOOGLE_CLIENT_ID' ||
+            key === 'VITE_GOOGLE_CLIENT_ID'
+          ) {
+            if (val && val !== 'YOUR_FIREBASE_WEB_API_KEY' && val !== 'your-project-id') {
+              process.env[key] = val;
+            }
+          }
+        }
+      } catch {
+        // Negeer onleesbare bestanden
+      }
+    }
+
+    const jsonCandidates = [
+      '/data/.firebase-applet-config.json',
+      '/var/lib/postgresql/data/.firebase-applet-config.json',
+    ];
+    for (const jsonPath of jsonCandidates) {
+      try {
+        if (!fs.existsSync(jsonPath)) continue;
+        const parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as Record<string, string>;
+        if (
+          parsed &&
+          typeof parsed.apiKey === 'string' &&
+          parsed.apiKey.startsWith('AIza') &&
+          typeof parsed.projectId === 'string' &&
+          parsed.projectId !== 'rosy-logic-ckpr3' &&
+          parsed.projectId !== 'your-project-id'
+        ) {
+          if (!process.env.FIREBASE_API_KEY) process.env.FIREBASE_API_KEY = parsed.apiKey.trim();
+          if (!process.env.FIREBASE_PROJECT_ID) process.env.FIREBASE_PROJECT_ID = parsed.projectId.trim();
+          if (!process.env.FIREBASE_AUTH_DOMAIN && parsed.authDomain) {
+            process.env.FIREBASE_AUTH_DOMAIN = parsed.authDomain.trim();
+          }
+          if (!process.env.FIREBASE_STORAGE_BUCKET && parsed.storageBucket) {
+            process.env.FIREBASE_STORAGE_BUCKET = parsed.storageBucket.trim();
+          }
+          if (!process.env.FIREBASE_MESSAGING_SENDER_ID && parsed.messagingSenderId) {
+            process.env.FIREBASE_MESSAGING_SENDER_ID = parsed.messagingSenderId.trim();
+          }
+          if (!process.env.FIREBASE_APP_ID && parsed.appId) {
+            process.env.FIREBASE_APP_ID = parsed.appId.trim();
+          }
+        }
+      } catch {
+        // Negeer
+      }
+    }
+  }
+
+  function getRuntimeFirebaseConfig() {
+    loadPersistentFirebaseEnv();
+    const runtimeApiKey = (
+      process.env.FIREBASE_API_KEY ||
+      process.env.VITE_FIREBASE_API_KEY ||
+      ''
+    ).trim();
+    const runtimeProjectId = (
+      process.env.FIREBASE_PROJECT_ID ||
+      process.env.VITE_FIREBASE_PROJECT_ID ||
+      ''
+    ).trim();
+
+    if (
+      runtimeApiKey &&
+      runtimeApiKey !== 'YOUR_FIREBASE_WEB_API_KEY' &&
+      runtimeProjectId &&
+      runtimeProjectId !== 'your-project-id'
+    ) {
+      return {
+        apiKey: runtimeApiKey,
+        authDomain:
+          (process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim() ||
+          `${runtimeProjectId}.firebaseapp.com`,
+        projectId: runtimeProjectId,
+        storageBucket:
+          (
+            process.env.FIREBASE_STORAGE_BUCKET ||
+            process.env.VITE_FIREBASE_STORAGE_BUCKET ||
+            ''
+          ).trim() || `${runtimeProjectId}.firebasestorage.app`,
+        messagingSenderId: (
+          process.env.FIREBASE_MESSAGING_SENDER_ID ||
+          process.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+          ''
+        ).trim(),
+        appId: (process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || '').trim(),
+        firestoreDatabaseId:
+          (process.env.FIREBASE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '').trim() ||
+          '(default)',
+      };
+    }
+    return null;
+  }
+
+  loadPersistentFirebaseEnv();
+
+  app.get('/api/firebase-config', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    const cfg = getRuntimeFirebaseConfig();
+    res.json({
+      configured: Boolean(cfg),
+      config: cfg,
+    });
+  });
+
+  app.post('/api/firebase-config', rateLimitMiddleware(15), async (req, res) => {
     try {
-      const versionPath = path.join(__dirname, 'src', 'version.json');
-      if (fs.existsSync(versionPath)) {
-        const parsed = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
-        res.json({
-          version: parsed.version || '2.6.0',
-          updatedAt: parsed.updatedAt || new Date().toISOString(),
+      const existingCfg = getRuntimeFirebaseConfig();
+      const user = await resolveRequestUser(req);
+      const isAdminUser = Boolean(
+        user && user.role === 'admin' && isVerifiedAdminEmail(user.email, user.emailVerified)
+      );
+
+      // Als er al een eigen Firebase-project gekoppeld is (anders dan rosy-logic-ckpr3),
+      // mag uitsluitend een geverifieerde beheerder deze wijzigen.
+      if (existingCfg && existingCfg.projectId !== 'rosy-logic-ckpr3' && !isAdminUser) {
+        res.status(403).json({
+          error:
+            'Er is al een eigen Firebase-project gekoppeld. Log eerst in als beheerder om dit te wijzigen.',
         });
         return;
+      }
+
+      const body = (req.body || {}) as Record<string, unknown>;
+      const apiKey = sanitizeServerString(body.apiKey, 120);
+      const projectId = sanitizeServerString(body.projectId, 100);
+      const authDomain =
+        sanitizeServerString(body.authDomain, 160) || `${projectId}.firebaseapp.com`;
+      const storageBucket =
+        sanitizeServerString(body.storageBucket, 160) || `${projectId}.firebasestorage.app`;
+      const messagingSenderId = sanitizeServerString(body.messagingSenderId, 80);
+      const appId = sanitizeServerString(body.appId, 140);
+
+      if (!apiKey.startsWith('AIza') || apiKey.length < 20) {
+        res.status(400).json({
+          error: 'Ongeldige Firebase apiKey (moet beginnen met AIza...).',
+        });
+        return;
+      }
+      if (!/^[a-z0-9-]{4,64}$/i.test(projectId)) {
+        res.status(400).json({
+          error: 'Ongeldig Firebase projectId.',
+        });
+        return;
+      }
+
+      process.env.FIREBASE_API_KEY = apiKey;
+      process.env.FIREBASE_PROJECT_ID = projectId;
+      process.env.FIREBASE_AUTH_DOMAIN = authDomain;
+      process.env.FIREBASE_STORAGE_BUCKET = storageBucket;
+      process.env.FIREBASE_MESSAGING_SENDER_ID = messagingSenderId;
+      process.env.FIREBASE_APP_ID = appId;
+      process.env.VITE_FIREBASE_API_KEY = apiKey;
+      process.env.VITE_FIREBASE_PROJECT_ID = projectId;
+      process.env.VITE_FIREBASE_AUTH_DOMAIN = authDomain;
+      process.env.VITE_FIREBASE_STORAGE_BUCKET = storageBucket;
+      process.env.VITE_FIREBASE_MESSAGING_SENDER_ID = messagingSenderId;
+      process.env.VITE_FIREBASE_APP_ID = appId;
+
+      const envFileContent = [
+        `export FIREBASE_API_KEY='${apiKey.replace(/'/g, '')}'`,
+        `export FIREBASE_PROJECT_ID='${projectId.replace(/'/g, '')}'`,
+        `export FIREBASE_AUTH_DOMAIN='${authDomain.replace(/'/g, '')}'`,
+        `export FIREBASE_STORAGE_BUCKET='${storageBucket.replace(/'/g, '')}'`,
+        `export FIREBASE_MESSAGING_SENDER_ID='${messagingSenderId.replace(/'/g, '')}'`,
+        `export FIREBASE_APP_ID='${appId.replace(/'/g, '')}'`,
+        '',
+      ].join('\n');
+
+      for (const targetDir of ['/data', '/var/lib/postgresql/data']) {
+        try {
+          if (fs.existsSync(targetDir)) {
+            fs.writeFileSync(path.join(targetDir, '.firebase_env'), envFileContent, {
+              encoding: 'utf8',
+              mode: 0o644,
+            });
+            fs.writeFileSync(
+              path.join(targetDir, '.firebase-applet-config.json'),
+              JSON.stringify(
+                {
+                  projectId,
+                  appId,
+                  apiKey,
+                  authDomain,
+                  storageBucket,
+                  messagingSenderId,
+                  firestoreDatabaseId: '(default)',
+                },
+                null,
+                2
+              ),
+              'utf8'
+            );
+          }
+        } catch {
+          // Negeer als directory niet schrijfbaar is
+        }
+      }
+
+      const updatedConfig = getRuntimeFirebaseConfig();
+      res.json({
+        ok: true,
+        config: updatedConfig,
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Kon Firebase-configuratie niet opslaan.',
+      });
+    }
+  });
+
+  app.get('/api/version', (_req, res) => {
+    try {
+      const candidates = [
+        '/data/.app_version.json',
+        path.join(__dirname, 'src', 'version.json'),
+      ];
+      for (const versionPath of candidates) {
+        if (fs.existsSync(versionPath)) {
+          const parsed = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+          if (parsed && parsed.version) {
+            res.json({
+              version: parsed.version,
+              updatedAt: parsed.updatedAt || new Date().toISOString(),
+            });
+            return;
+          }
+        }
       }
     } catch {
       // ignore
@@ -980,6 +1227,54 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
+    const indexPath = path.join(distPath, 'index.html');
+
+    const renderIndexHtmlWithRuntimeConfig = (): string | null => {
+      try {
+        if (!fs.existsSync(indexPath)) return null;
+        let rawHtml = fs.readFileSync(indexPath, 'utf8');
+        const runtimeConfig = getRuntimeFirebaseConfig();
+        if (runtimeConfig) {
+          const safeJson = JSON.stringify(runtimeConfig)
+            .replace(/</g, '\\u003c')
+            .replace(/>/g, '\\u003e')
+            .replace(/&/g, '\\u0026')
+            .replace(/\u2028/g, '\\u2028')
+            .replace(/\u2029/g, '\\u2029');
+          const scriptTag = `<script id="bierlog-runtime-firebase">window.__BIERLOG_FIREBASE_CONFIG__=${safeJson};</script>`;
+          rawHtml = rawHtml.replace(
+            /<script id="bierlog-runtime-firebase">[\s\S]*?<\/script>/g,
+            ''
+          );
+          rawHtml = rawHtml.replace(
+            /<script>window\.__BIERLOG_FIREBASE_CONFIG__=[\s\S]*?<\/script>/g,
+            ''
+          );
+          rawHtml = rawHtml.replace('<head>', `<head>${scriptTag}`);
+        }
+        return rawHtml;
+      } catch {
+        return null;
+      }
+    };
+
+    const sendIndexHtml = (_req: express.Request, res: express.Response) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      const html = renderIndexHtmlWithRuntimeConfig();
+      if (html) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+        return;
+      }
+      res.sendFile(indexPath);
+    };
+
+    // Onderschep / en /index.html vóór express.static zodat ook Service Workers
+    // NOOIT een onbewerkte dist/index.html zonder window.__BIERLOG_FIREBASE_CONFIG__ krijgen
+    app.get(['/', '/index.html'], sendIndexHtml);
+
     app.use(
       express.static(distPath, {
         index: false,
@@ -1000,63 +1295,7 @@ async function startServer() {
         },
       })
     );
-    app.get('*', (_req, res) => {
-      const indexPath = path.join(distPath, 'index.html');
-      const runtimeApiKey = (
-        process.env.FIREBASE_API_KEY ||
-        process.env.VITE_FIREBASE_API_KEY ||
-        ''
-      ).trim();
-      const runtimeProjectId = (
-        process.env.FIREBASE_PROJECT_ID ||
-        process.env.VITE_FIREBASE_PROJECT_ID ||
-        ''
-      ).trim();
-
-      if (
-        runtimeApiKey &&
-        runtimeApiKey !== 'YOUR_FIREBASE_WEB_API_KEY' &&
-        runtimeProjectId &&
-        runtimeProjectId !== 'your-project-id'
-      ) {
-        try {
-          const rawHtml = fs.readFileSync(indexPath, 'utf8');
-          const runtimeConfig = {
-            apiKey: runtimeApiKey,
-            authDomain:
-              (process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim() ||
-              `${runtimeProjectId}.firebaseapp.com`,
-            projectId: runtimeProjectId,
-            storageBucket:
-              (process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim() ||
-              `${runtimeProjectId}.firebasestorage.app`,
-            messagingSenderId: (
-              process.env.FIREBASE_MESSAGING_SENDER_ID ||
-              process.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
-              ''
-            ).trim(),
-            appId: (process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || '').trim(),
-            firestoreDatabaseId:
-              (process.env.FIREBASE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '').trim() ||
-              '(default)',
-          };
-          const safeJson = JSON.stringify(runtimeConfig)
-            .replace(/</g, '\\u003c')
-            .replace(/>/g, '\\u003e')
-            .replace(/&/g, '\\u0026')
-            .replace(/\u2028/g, '\\u2028')
-            .replace(/\u2029/g, '\\u2029');
-          const scriptTag = `<script>window.__BIERLOG_FIREBASE_CONFIG__=${safeJson};</script>`;
-          res.setHeader('Content-Type', 'text/html; charset=utf-8');
-          res.send(rawHtml.replace('<head>', `<head>${scriptTag}`));
-          return;
-        } catch {
-          // Fallback naar standaard index.html
-        }
-      }
-
-      res.sendFile(indexPath);
-    });
+    app.get('*', sendIndexHtml);
   }
 
   app.listen(PORT, '0.0.0.0', () => {
