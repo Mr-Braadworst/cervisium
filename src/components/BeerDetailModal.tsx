@@ -31,6 +31,7 @@ interface BeerDetailModalProps {
   onDeleteTasting?: (tastingId: string) => void;
   onEditTasting?: (tasting: Tasting) => void;
   onUpdatePhotoPosition?: (beerId: string, position: string, zoom?: number, newPhotoUrl?: string) => void;
+  readOnly?: boolean;
 }
 
 export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
@@ -46,6 +47,7 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
   onDeleteTasting,
   onEditTasting,
   onUpdatePhotoPosition,
+  readOnly = false,
 }) => {
   const [showLightbox, setShowLightbox] = useState(false);
   const [confirmDeleteBeer, setConfirmDeleteBeer] = useState(false);
