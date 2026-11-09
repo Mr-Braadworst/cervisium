@@ -169,6 +169,12 @@ if [ -f "${ENV_BACKUP_FILE}" ] && [ ! -f "/app/.env" ]; then
   cp "${ENV_BACKUP_FILE}" "/app/.env" 2>/dev/null || true
 fi
 
+# Synchroniseer het versienummer uit /app/src/version.json met /data/.app_version.json bij opstarten
+if [ -f "/app/src/version.json" ]; then
+  cp "/app/src/version.json" "${DATA_DIR}/.app_version.json" 2>/dev/null || true
+  chmod 644 "${DATA_DIR}/.app_version.json" 2>/dev/null || true
+fi
+
 # 1c. Genereer automatisch een unieke SESSION_SECRET binnenin de container
 if [ -z "${SESSION_SECRET}" ] || [ "${SESSION_SECRET}" = "vervang_dit_door_een_lange_geheime_sleutel_van_32_tekens" ]; then
   if [ ! -f "${SECRET_FILE}" ]; then

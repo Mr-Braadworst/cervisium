@@ -5,7 +5,8 @@ import confetti from 'canvas-confetti';
 import { getScoreLabel, getScoreColorClass } from './RatingBadge';
 import { DatePickerInput } from './DatePickerInput';
 import { ConfirmModal } from './ConfirmModal';
-import { validateAndCompressImageFile, formatDataUrlSizeKb, safeIsoDate } from '../utils/security';
+import { CameraCaptureModal } from './CameraCaptureModal';
+import { validateAndCompressImageFile, safeIsoDate } from '../utils/security';
 
 const DEFAULT_LOCATION_SUGGESTIONS = [
   'Thuis',
@@ -80,6 +81,7 @@ export const BeerModal: React.FC<BeerModalProps> = ({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
 
   // Focus states voor live autocomplete dropdowns op de 3 velden
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
@@ -771,43 +773,24 @@ export const BeerModal: React.FC<BeerModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-semibold text-zinc-300">
-                Foto van het bier <span className="text-zinc-500 font-normal">(max 100 MB &bull; wordt slim &le; 80 KB)</span>
+                Foto van het bier
               </label>
-              {photoUrl && formatDataUrlSizeKb(photoUrl) && (
+              {photoUrl && (
                 <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                  ✓ {formatDataUrlSizeKb(photoUrl)}
+                  ✓ Foto toegevoegd
                 </span>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2.5">
-              {/* Directe Camera-knop (opent op mobiel direct de achtercamera) */}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = '';
-                  if (file) {
-                    try {
-                      const compressed = await compressImage(file);
-                      setPhotoUrl(compressed);
-                      setError(null);
-                    } catch (err: any) {
-                      setError(err?.message || 'Ongeldig afbeeldingsbestand.');
-                    }
-                  }
-                }}
-                className="hidden"
-                id="beer-photo-camera"
-              />
-              <label
-                htmlFor="beer-photo-camera"
+              {/* Directe Camera-knop (vraagt camera-permissie en opent de live camera) */}
+              <button
+                type="button"
+                onClick={() => setCameraModalOpen(true)}
                 className="cursor-pointer flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:border-amber-400 transition-colors text-xs sm:text-sm font-semibold"
               >
                 <Camera className="w-4 h-4 text-amber-400" />
                 <span>Maak foto</span>
-              </label>
+              </button>
 
               {/* Galerij / Bestand kiezen */}
               <input
@@ -1071,6 +1054,21 @@ export const BeerModal: React.FC<BeerModalProps> = ({
           if (input) input.value = '';
         }}
         onCancel={() => setConfirmRemovePhoto(false)}
+      />
+
+      <CameraCaptureModal
+        isOpen={cameraModalOpen}
+        onClose={() => setCameraModalOpen(false)}
+        title="Maak foto van je bier"
+        onCaptureFile={async (file) => {
+          try {
+            const compressed = await compressImage(file);
+            setPhotoUrl(compressed);
+            setError(null);
+          } catch (err: any) {
+            setError(err?.message || 'Ongeldig afbeeldingsbestand.');
+          }
+        }}
       />
     </div>
   );

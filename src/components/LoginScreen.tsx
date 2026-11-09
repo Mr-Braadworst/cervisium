@@ -17,7 +17,7 @@ import {
   syncUserWithServerDatabase,
 } from '../services/storage';
 import { getCanonicalUserIdForEmail } from '../utils/security';
-import { APP_VERSION, getFormattedVersionDate } from '../version';
+import { useAppVersion } from '../version';
 import {
   Beer,
   Trophy,
@@ -92,6 +92,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   initialMode = 'login',
   onBackToLanding,
 }) => {
+  const { appVersion, versionDate } = useAppVersion();
   const [authMode, setAuthMode] = useState<'login' | 'register'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -1015,8 +1016,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           data-no-translate="true"
           className="notranslate text-center pt-1 text-[11px] font-mono text-zinc-500"
         >
-          Cervisium v{APP_VERSION}
-          {getFormattedVersionDate() ? ` • ${getFormattedVersionDate()}` : ''}
+          Cervisium v{appVersion}
+          {versionDate ? ` • ${versionDate}` : ''}
         </div>
       </div>
     </div>

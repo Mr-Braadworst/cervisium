@@ -147,36 +147,70 @@ export const QrScanModal: React.FC<QrScanModalProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const scannedRef = useRef<boolean>(false);
 
+  const stopCamera = React.useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const requestAndStartCamera = React.useCallback(async () => {
+    stopCamera();
+    setCameraError(null);
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setCameraError(
+        'Je browser ondersteunt geen directe cameratoegang. Kies hieronder een foto van de QR-code.'
+      );
+      return;
+    }
+
+    try {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
+
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+    } catch (err) {
+      console.warn('Camera niet beschikbaar:', err);
+      setCameraError(
+        'Geen toegang tot de camera. Klik hieronder op "Toestemming vragen" en kies "Toestaan" in je browser, of upload een foto van de QR-code.'
+      );
+    }
+  }, [stopCamera]);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      stopCamera();
+      return;
+    }
     scannedRef.current = false;
     setCameraError(null);
     setFileError(null);
 
     let active = true;
     let animationFrameId: number;
-
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
-        if (videoRef.current && active) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-          animationFrameId = requestAnimationFrame(tick);
-        }
-      } catch (err) {
-        console.warn('Camera niet beschikbaar:', err);
-        setCameraError(
-          'Geen toegang tot camera. Zorg voor cameratoestemming in je browser of upload een foto van de QR-code.'
-        );
-      }
-    }
 
     function tick() {
       if (!active || scannedRef.current) return;
@@ -203,17 +237,18 @@ export const QrScanModal: React.FC<QrScanModalProps> = ({
       animationFrameId = requestAnimationFrame(tick);
     }
 
-    startCamera();
+    requestAndStartCamera().then(() => {
+      if (active) {
+        animationFrameId = requestAnimationFrame(tick);
+      }
+    });
 
     return () => {
       active = false;
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      stopCamera();
     };
-  }, [isOpen, onScanned]);
+  }, [isOpen, onScanned, requestAndStartCamera, stopCamera]);
 
   if (!isOpen) return null;
 
@@ -308,9 +343,18 @@ export const QrScanModal: React.FC<QrScanModalProps> = ({
         </div>
 
         {cameraError && (
-          <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-center gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>{cameraError}</span>
+          <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <span>{cameraError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => requestAndStartCamera()}
+              className="w-full py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs transition-colors cursor-pointer"
+            >
+              Toestemming vragen &amp; opnieuw proberen
+            </button>
           </div>
         )}
 

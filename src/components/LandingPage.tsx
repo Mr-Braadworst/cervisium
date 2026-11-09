@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
-import { APP_VERSION, getFormattedVersionDate } from '../version';
 import { RatingBadge } from './RatingBadge';
+import { useAppVersion } from '../version';
 import {
   ArrowRight,
   LogIn,
   UserPlus,
   Camera,
   QrCode,
-  SlidersHorizontal,
-  ShieldCheck,
   MapPin,
   Wine,
   Heart,
@@ -25,6 +23,7 @@ import {
   Minus,
   Gift,
   Droplets,
+  Trophy,
 } from 'lucide-react';
 
 import heroBeerImg from '../assets/images/hero_craft_beer_tasting_1794225257636.jpg';
@@ -217,17 +216,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     'karmeliet-tripel': true,
   });
 
-  // Interactieve staat voor het Glazenkast-voorbeeld
   const [sampleGlasses, setSampleGlasses] = useState<SampleGlassItem[]>(INITIAL_SAMPLE_GLASSES);
-
-  // Interactieve staat voor het Vrienden-voorbeeld
   const [copiedDemoLink, setCopiedDemoLink] = useState(false);
   const [viewingDemoFriend, setViewingDemoFriend] = useState<string | null>('Thomas de Vries');
-
-  // Interactieve staat voor de Avond Bierteller
   const [demoBeersDrunk, setDemoBeersDrunk] = useState<number>(3);
   const [demoWaterGlasses, setDemoWaterGlasses] = useState<number>(1);
 
+  const { appVersion, versionDate } = useAppVersion();
   const [heroImgFailed, setHeroImgFailed] = useState(false);
   const [glassImgFailed, setGlassImgFailed] = useState(false);
   const [friendsImgFailed, setFriendsImgFailed] = useState(false);
@@ -249,8 +244,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       prev.map((g) => (g.id === id ? { ...g, quantity: Math.max(0, g.quantity + delta) } : g))
     );
   };
-
-  const versionDate = getFormattedVersionDate();
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-amber-500 selection:text-zinc-950">
@@ -279,19 +272,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               href="#wat-is-cervisium"
               className="hover:text-zinc-100 hover:underline underline-offset-8 decoration-amber-500/80 transition-colors whitespace-nowrap shrink-0"
             >
-              Mogelijkheden
+              Wat kun je doen?
             </a>
             <a
               href="#glazen-en-tools"
               className="hover:text-zinc-100 hover:underline underline-offset-8 decoration-amber-500/80 transition-colors whitespace-nowrap shrink-0"
             >
-              Glazenkast &amp; Tools
+              Glazenkast &amp; Extra&apos;s
             </a>
             <a
-              href="#vrienden-en-privacy"
+              href="#vrienden-en-samen"
               className="hover:text-zinc-100 hover:underline underline-offset-8 decoration-amber-500/80 transition-colors whitespace-nowrap shrink-0"
             >
-              Vrienden &amp; Privacy
+              Samen met Vrienden
             </a>
           </nav>
 
@@ -334,7 +327,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="lg:col-span-6 flex flex-col justify-between space-y-8 py-2">
               <div className="space-y-5">
                 <p className="text-xs sm:text-sm font-medium text-amber-400 tracking-wide">
-                  Persoonlijk Speciaalbier Archief &middot; Proefnotities &middot; Glazenkast
+                  Jouw Biercollectie &middot; Proefnotities &middot; Glazenkast
                 </p>
 
                 <h1
@@ -348,7 +341,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </h1>
 
                 <p className="text-base sm:text-lg text-zinc-300 leading-relaxed max-w-xl">
-                  Cervisium is jouw persoonlijke digitale proefboek. Leg gedronken bieren vast met een eigen foto, geef een cijfer van 1 tot 10, noteer het café of terras waar je zat en bouw een overzichtelijke lijst op die je nooit meer kwijtraakt.
+                  Cervisium is jouw persoonlijke bierboekje voor op het terras en thuis. Leg gedronken speciaalbieren vast met een eigen foto, geef een cijfer van 1 tot 10, noteer het café waar je zat en houd bij welke bieren je favoriet zijn.
                 </p>
               </div>
 
@@ -375,11 +368,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
-                  <span>Inloggen met e-mail of Google</span>
+                  <span>Gratis account aanmaken</span>
                   <span aria-hidden="true">&middot;</span>
-                  <span>Werkt op telefoon &amp; desktop</span>
+                  <span>Altijd bij de hand op je telefoon</span>
                   <span aria-hidden="true">&middot;</span>
-                  <span>Eigen JSON-backup &amp; import</span>
+                  <span>Deel je lijst met vrienden</span>
                 </div>
               </div>
             </div>
@@ -426,53 +419,53 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
           </div>
 
-          {/* Full-width 4-column specification bar below the hero split */}
+          {/* Full-width 4-column overview bar below the hero split */}
           <div className="mt-12 pt-8 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
             <div className="space-y-1.5">
-              <div className="text-2xl font-bold text-zinc-100 font-mono tabular-nums">
-                1.0 &ndash; 10.0
+              <div className="text-xl font-bold text-amber-400">
+                Cijfer 1 tot 10
               </div>
               <div className="text-sm font-semibold text-zinc-200">
-                Meerdere proefsessies per bier
+                Jouw eigen smaak &amp; oordeel
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Drink je hetzelfde bier later nog eens van het vat of uit blik? Voeg een nieuwe sessie toe en zie direct je actuele gemiddelde.
+                Geef elk bier een cijfer en schrijf een korte proefnotitie, zodat je in het café of de winkel altijd weet wat je lekker vond.
               </p>
             </div>
 
             <div className="space-y-1.5">
-              <div className="text-2xl font-bold text-zinc-100 font-mono tabular-nums">
-                &le; 80 KB
+              <div className="text-xl font-bold text-amber-400">
+                Tap, Fles of Blik
               </div>
               <div className="text-sm font-semibold text-zinc-200">
-                Directe camera &amp; fotocompressie
+                Meerdere proefmomenten per bier
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Maak op je telefoon direct een foto van je bier of glas. Foto&apos;s tot 100 MB worden automatisch scherp verkleind en kadrering pas je zelf aan.
+                Drink je een bier later nog eens op een ander terras? Voeg het nieuwe moment toe en zie direct wat je het bier gemiddeld geeft.
               </p>
             </div>
 
             <div className="space-y-1.5">
-              <div className="text-2xl font-bold text-zinc-100 font-mono tabular-nums">
-                QR &amp; Link
+              <div className="text-xl font-bold text-amber-400">
+                Glazenkast
               </div>
               <div className="text-sm font-semibold text-zinc-200">
-                Vrienden uitnodigen aan tafel
+                Jouw bierglazen thuis bijhouden
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Laat vrienden jouw persoonlijke QR-code scannen om elkaars bierlijst, top-scores en proefnotities te bekijken.
+                Zet al je speciaalbierglazen op een rij met eigen foto&apos;s en aantallen, zodat je precies weet welke glazen je al verzameld hebt.
               </p>
             </div>
 
             <div className="space-y-1.5">
-              <div className="text-2xl font-bold text-zinc-100 font-mono tabular-nums">
-                100% Privé
+              <div className="text-xl font-bold text-amber-400">
+                Samen Proeven
               </div>
               <div className="text-sm font-semibold text-zinc-200">
-                Strikte alleen-lezen bescherming
+                Vrienden toevoegen via QR-code
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Jouw collectie is gekoppeld aan jouw eigen account. Vrienden kunnen jouw lijst bewonderen, maar nooit iets wijzigen of wissen.
+                Scan aan tafel de QR-code van een vriend of deel je uitnodigingslink om door elkaars bierlijsten en favorieten te bladeren.
               </p>
             </div>
           </div>
@@ -484,13 +477,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
               <div className="space-y-2 max-w-2xl">
                 <p className="text-xs font-medium text-amber-400 tracking-wide">
-                  Echte weergave van de applicatie
+                  Kijkje in de app
                 </p>
                 <h2 className="text-2xl sm:text-3xl font-bold text-zinc-100 tracking-tight font-['Playfair_Display',serif]">
                   Probeer de onderdelen van Cervisium hier direct uit
                 </h2>
                 <p className="text-sm text-zinc-400">
-                  Wissel tussen de 4 hoofdonderdelen om te zien hoe jouw echte bierkaarten, proefgeschiedenis, glazenkast, vrienden-QR en avondteller werken.
+                  Klik op de vier onderdelen hiernaast om te zien hoe je eigen bierlijst, je glazenkast, je vriendenlijst en de avond-bierteller eruitzien.
                 </p>
               </div>
 
@@ -581,7 +574,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     })}
                   </div>
                   <span className="text-xs text-zinc-400">
-                    Klik op een bierkaart links om rechts het volledige proefvenster te bekijken
+                    Klik op een bierkaart links om rechts alle proefnotities en locaties te bekijken
                   </span>
                 </div>
 
@@ -711,7 +704,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                           {activeSample.abv.toFixed(1)}% ABV
                         </span>
                       </div>
-                      <span>Voorbeeld: Detailvenster in de app</span>
+                      <span>Uitgebreide bierkaart</span>
                     </div>
 
                     {/* Hero title & RatingBadge lg */}
@@ -822,7 +815,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       Mijn Bierglazen Collectie
                     </h3>
                     <p className="text-xs text-zinc-400 mt-0.5">
-                      Houd bij welke glazen je thuis hebt staan en pas direct het aantal stuks aan met de + en &minus; knoppen.
+                      Houd bij welke glazen je thuis hebt staan en pas het aantal stuks aan met de + en &minus; knoppen.
                     </p>
                   </div>
 
@@ -894,7 +887,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             )}
 
-            {/* MODULE 3: ECHTE VRIENDEN, QR-CODE & ALLEEN-LEZEN WEERGAVE */}
+            {/* MODULE 3: ECHTE VRIENDEN & QR-CODE WEERGAVE */}
             {activePreviewModule === 'vrienden' && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Links: Uitnodigingslink & QR-Scanner kaart */}
@@ -905,13 +898,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       <span>Vrienden Uitnodigen via Link of QR</span>
                     </h3>
                     <p className="text-xs text-zinc-400 leading-relaxed">
-                      Deel jouw persoonlijke link (via jouw eigen domein) of laat een vriend direct jouw QR-code scannen met de ingebouwde camera-scanner.
+                      Deel je persoonlijke uitnodigingslink via WhatsApp of laat een vriend aan tafel jouw QR-code scannen met zijn telefooncamera.
                     </p>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-2">
                     <code className="text-xs font-mono text-amber-300 truncate">
-                      https://cervisium.nl/?invite=usr_voorbeeld
+                      https://cervisium.nl/?invite=vriend
                     </code>
                     <button
                       type="button"
@@ -944,29 +937,28 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div className="p-3.5 rounded-xl bg-zinc-950/70 border border-zinc-800 text-center space-y-1">
                       <Camera className="w-6 h-6 text-emerald-400 mx-auto" />
                       <div className="text-xs font-bold text-zinc-200">Scan QR-Code</div>
-                      <div className="text-[11px] text-zinc-500">Direct met je camera</div>
+                      <div className="text-[11px] text-zinc-500">Met je camera</div>
                     </div>
                   </div>
                 </div>
 
-                {/* Rechts: Gekoppelde Vrienden + Alleen-Lezen balk voorbeeld */}
+                {/* Rechts: Gekoppelde Vrienden */}
                 <div className="lg:col-span-7 bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6 space-y-5">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-zinc-100">
                       Jouw Biervrienden (2)
                     </h3>
-                    <span className="text-xs text-emerald-400 font-medium">
-                      100% beveiligd: Alleen-lezen weergave
+                    <span className="text-xs text-amber-400 font-medium">
+                      Samen elkaars favorieten ontdekken
                     </span>
                   </div>
 
-                  {/* Voorbeeld van de gele "Je bekijkt de biercollectie van..." balk uit App.tsx */}
                   {viewingDemoFriend && (
                     <div className="bg-zinc-950 border border-amber-500/40 text-amber-300 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                       <div className="flex items-center gap-2">
                         <Users className="w-4 h-4 text-amber-400 shrink-0" />
                         <span>
-                          Je bekijkt nu de biercollectie van <strong>{viewingDemoFriend}</strong> (Alleen-lezen modus: aanpassen of verwijderen is uitgeschakeld)
+                          Je bekijkt nu de biercollectie en proefnotities van <strong>{viewingDemoFriend}</strong>
                         </span>
                       </div>
                       <button
@@ -1036,7 +1028,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         Avond Bierteller &amp; Water-Tracker
                       </h3>
                       <p className="text-xs text-zinc-400">
-                        Houd tijdens een avond op het terras je consumpties, kosten en glazen water bij.
+                        Houd tijdens een avond op het terras je drankjes, uitgaven en glazen water bij.
                       </p>
                     </div>
                     <span className="font-mono tabular-nums text-lg font-bold text-amber-400">
@@ -1103,14 +1095,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="lg:col-span-6 bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6 space-y-4 flex flex-col justify-between">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs text-emerald-400 font-medium">
-                      <span>Onderdeel: Bier &amp; Kroeg Acties NL</span>
-                      <span>Geverifieerde acties</span>
+                      <span>Onderdeel: Bier &amp; Kroeg Acties</span>
+                      <span>Door heel Nederland</span>
                     </div>
                     <h3 className="text-lg font-bold text-zinc-100">
-                      Ontdek waar je een gratis speciaalbierglas of proefplank-actie krijgt
+                      Ontdek waar je een gratis speciaalbierglas of leuke actie krijgt
                     </h3>
                     <p className="text-xs text-zinc-400 leading-relaxed">
-                      In de ingebouwde actie-finder zie je lopende promoties van brouwerijen en biercafés door heel Nederland, of voeg je zelf een gespotte actie toe.
+                      Bekijk lopende acties van brouwerijen en biercafés (zoals een gratis glas bij twee bieren van de tap) of deel zelf een mooie actie die je bent tegengekomen.
                     </p>
                   </div>
 
@@ -1122,7 +1114,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       Gratis origineel tulpglas bij bestelling van 2 speciaalbieren van het vat
                     </div>
                     <div className="text-xs text-zinc-400">
-                      Deelnemende speciaalbiercafés &middot; Inclusief directe link naar de actievoorwaarden
+                      Bij deelnemende speciaalbiercafés &middot; Bekijk direct waar de actie geldt
                     </div>
                   </div>
                 </div>
@@ -1139,16 +1131,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             <div className="max-w-2xl space-y-3">
               <p className="text-xs font-medium text-amber-400 tracking-wide">
-                Overzicht van alle functies
+                Alles op één plek
               </p>
               <h2
                 className="text-2xl sm:text-4xl font-bold text-zinc-100 tracking-tight font-['Playfair_Display',serif]"
                 style={{ textWrap: 'balance' }}
               >
-                Ontworpen voor de proever die meer wil onthouden dan alleen een naam.
+                Gemaakt voor de liefhebber die meer wil onthouden dan alleen een naam.
               </h2>
               <p className="text-sm sm:text-base text-zinc-400 leading-relaxed">
-                Geen rommelige tijdlijnen of reclames, maar een gestructureerd persoonlijk naslagwerk voor je bieren, proeflocaties, bierglazen en avondjes in het café.
+                Geen drukke tijdlijnen of reclames, maar een persoonlijk overzicht voor je geproefde bieren, favoriete terrassen, bierglazen en avondjes in de kroeg.
               </p>
             </div>
 
@@ -1158,13 +1150,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="lg:col-span-7 rounded-2xl border border-zinc-800/90 bg-zinc-900/70 p-6 sm:p-8 flex flex-col justify-between space-y-6">
                 <div className="space-y-3">
                   <span className="text-xs font-mono tabular-nums text-amber-400 font-semibold">
-                    01. Proeflogboek &amp; Herhaalproeverijen
+                    01. Proefboek &amp; Herhaalproeverijen
                   </span>
                   <h3 className="text-xl sm:text-2xl font-bold text-zinc-100 tracking-tight">
-                    Leg elk bier vast met foto, schenkwijze, locatie en proefnotities
+                    Leg elk bier vast met een eigen foto, locatie en proefnotitie
                   </h3>
                   <p className="text-sm text-zinc-300 leading-relaxed">
-                    Voeg binnen enkele seconden een nieuw bier toe. Noteer de brouwerij, het alcoholpercentage (ABV), de stijl en hoe je het bier dronk: van het vat, uit fles of uit blik. Drink je hetzelfde bier maanden later opnieuw op een ander terras? Met de functie <em>&ldquo;Nog een keer gedronken&rdquo;</em> voeg je een nieuwe datum, locatie en score toe zonder dubbele bieren in je lijst.
+                    Voeg op het terras direct het bier toe dat voor je staat. Noteer de brouwerij, het alcoholpercentage, de stijl en of je hem van de tap, uit fles of uit blik drinkt. Drink je hetzelfde bier later nog een keer op een andere plek? Klik op <em>&ldquo;Nog een keer gedronken&rdquo;</em> om een nieuw proefmoment toe te voegen.
                   </p>
                 </div>
 
@@ -1174,12 +1166,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div className="text-zinc-400 mt-0.5">Tap &middot; Fles &middot; Blik &middot; Café of thuis</div>
                   </div>
                   <div>
-                    <div className="font-semibold text-zinc-100">Slimme Duplicaatcheck</div>
-                    <div className="text-zinc-400 mt-0.5">Herkent bieren die al in je lijst staan</div>
+                    <div className="font-semibold text-zinc-100">Eigen Foto Maken</div>
+                    <div className="text-zinc-400 mt-0.5">Direct met je telefooncamera vastleggen</div>
                   </div>
                   <div>
-                    <div className="font-semibold text-zinc-100">Interactieve Fotokadrering</div>
-                    <div className="text-zinc-400 mt-0.5">Verschuif en zoom elke bierfoto op maat</div>
+                    <div className="font-semibold text-zinc-100">Mooie Uitsnede</div>
+                    <div className="text-zinc-400 mt-0.5">Schuif en zoom je foto precies goed op de kaart</div>
                   </div>
                 </div>
               </div>
@@ -1194,22 +1186,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     Jouw eigen categorieën, kleuren en ranglijsten
                   </h3>
                   <p className="text-sm text-zinc-300 leading-relaxed">
-                    Bepaal zelf hoe je jouw collectie indeelt. Gebruik de voorgebouwde bierstijlen (zoals Tripel, Quadrupel, Blond, NEIPA, Weizen en Imperial Stout) of maak eigen categorieën met een eigen kleurcode.
+                    Deel je collectie in zoals jij dat fijn vindt. Kies uit bekende bierstijlen (zoals Tripel, Quadrupel, Blond, NEIPA, Weizen en Imperial Stout) of voeg je eigen categorieën met een eigen kleur toe.
                   </p>
                 </div>
 
                 <div className="pt-4 border-t border-zinc-800/80 space-y-2.5 text-xs">
                   <div className="flex items-center justify-between text-zinc-300">
-                    <span>Top Rankings per categorie</span>
-                    <span className="font-mono tabular-nums text-amber-400">Automatisch berekend</span>
+                    <span>Jouw beste bieren op een rij</span>
+                    <span className="text-amber-400 font-medium">Top 10 per stijl</span>
                   </div>
                   <div className="flex items-center justify-between text-zinc-300">
-                    <span>Filter op favorieten, brouwerij of ABV</span>
-                    <span className="font-mono tabular-nums text-zinc-400">Direct zoeken</span>
+                    <span>Zoek op naam, brouwerij of favoriet</span>
+                    <span className="text-zinc-400">Snel terugvinden</span>
                   </div>
                   <div className="flex items-center justify-between text-zinc-300">
-                    <span>Statistieken op je dashboard</span>
-                    <span className="font-mono tabular-nums text-zinc-400">Totaal &amp; gemiddelden</span>
+                    <span>Overzichtelijk dashboard</span>
+                    <span className="text-zinc-400">Al je aantallen &amp; scores</span>
                   </div>
                 </div>
               </div>
@@ -1239,24 +1231,24 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="p-6 sm:p-8 space-y-3 flex-1 flex flex-col justify-between">
                   <div className="space-y-2.5">
                     <span className="text-xs font-mono tabular-nums text-amber-400 font-semibold">
-                      03. Bierglazenkast &amp; Glas-Deals
+                      03. Bierglazenkast &amp; Kroeg-Acties
                     </span>
                     <h3 className="text-xl font-bold text-zinc-100 tracking-tight">
-                      Beheer je thuiscollectie speciaalbierglazen
+                      Houd je verzameling speciaalbierglazen bij
                     </h3>
                     <p className="text-sm text-zinc-300 leading-relaxed">
-                      Houd precies bij welke originele brouwerijglazen je thuis in de kast hebt staan, inclusief aantallen, glastype (kelk, tulpglas, snifter, pul) en eigen foto&apos;s. Daarnaast bekijk je onder Extra&apos;s actuele aanbiedingen en hebbedingetjes voor je thuisbar.
+                      Spaar je ook mooie brouwerijglazen? Zet je kelken, tulpglazen en pullen met foto en aantal in je digitale glazenkast. Zo weet je op een bierfestival of in de winkel altijd of je een glas al thuis hebt staan.
                     </p>
                   </div>
                   <p className="text-xs text-zinc-400 pt-3 border-t border-zinc-800/80">
-                    Inclusief avond-bierteller &middot; Water-herinnering &middot; Geschatte promillage- en afbreektijd-calculator
+                    Inclusief handige avond-bierteller &middot; Water-herinnering &middot; Overzicht van leuke glas-acties
                   </p>
                 </div>
               </div>
 
               {/* 04. Friends & QR Code (col-span-6 with photography) */}
               <div
-                id="vrienden-en-privacy"
+                id="vrienden-en-samen"
                 className="lg:col-span-6 rounded-2xl border border-zinc-800/90 bg-zinc-900/70 overflow-hidden flex flex-col justify-between"
               >
                 <div className="relative h-56 sm:h-64 w-full bg-zinc-950 overflow-hidden">
@@ -1282,14 +1274,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       04. Vrienden &amp; QR-Code Scanner
                     </span>
                     <h3 className="text-xl font-bold text-zinc-100 tracking-tight">
-                      Wissel bierlijsten uit met vrienden via QR of uitnodigingslink
+                      Bekijk de bierlijst en aanraders van je vrienden
                     </h3>
                     <p className="text-sm text-zinc-300 leading-relaxed">
-                      Zit je samen op het terras en wil je zien welke bieren een vriend een 9+ heeft gegeven? Scan elkaars QR-code direct met je camera of stuur een uitnodigingslink. Zodra jullie vrienden zijn, kun je met één klik door de bierlijst, proefnotities en glazen van je vriend bladeren.
+                      Zit je samen op het terras en ben je benieuwd welke bieren je vrienden een 9 of hoger hebben gegeven? Scan elkaars QR-code of stuur een uitnodigingslink en blader direct door elkaars gedronken bieren en proefnotities.
                     </p>
                   </div>
                   <p className="text-xs text-zinc-400 pt-3 border-t border-zinc-800/80">
-                    Volledig alleen-lezen voor vrienden &middot; Niemand kan jouw bieren of scores aanpassen
+                    Samen nieuwe bieren ontdekken &middot; Alleen jouw vrienden kunnen jouw lijst bekijken
                   </p>
                 </div>
               </div>
@@ -1297,15 +1289,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* Section 4: Concrete Workflow & Privacy Overview */}
+        {/* Section 4: Everyday Use & Conversion */}
         <section className="py-16 sm:py-20 border-t border-zinc-800/80 bg-zinc-900/20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             <div className="max-w-2xl space-y-2">
               <p className="text-xs font-medium text-amber-400 tracking-wide">
-                Zo werkt het in de praktijk
+                Makkelijk in gebruik
               </p>
               <h2 className="text-2xl sm:text-3xl font-bold text-zinc-100 tracking-tight font-['Playfair_Display',serif]">
-                Gebouwd voor snelheid op het terras en overzicht thuis
+                Ideaal voor op het terras, bij een proeverij of thuis
               </h2>
             </div>
 
@@ -1313,30 +1305,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="space-y-3">
                 <div className="inline-flex items-center gap-2 text-sm font-bold text-zinc-100">
                   <Camera className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Maak direct een foto met je camera</span>
+                  <span>Leg je bier direct vast met een foto</span>
                 </div>
                 <p className="text-sm text-zinc-400 leading-relaxed">
-                  Open Cervisium op je mobiel, kies <em>&ldquo;Maak foto&rdquo;</em> om direct je camera te openen of selecteer een bestaande foto uit je galerij. Zelfs grote 100 MB camerafoto&apos;s worden automatisch geoptimaliseerd tot onder de 80 KB zonder kwaliteitsverlies.
+                  Maak met je telefoon direct een foto van het glas of het etiket dat voor je staat, of kies een eerdere foto uit je fotoboek.
                 </p>
               </div>
 
               <div className="space-y-3">
                 <div className="inline-flex items-center gap-2 text-sm font-bold text-zinc-100">
-                  <SlidersHorizontal className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Overal gesynchroniseerd &amp; exporteerbaar</span>
+                  <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Nooit meer vergeten wat je lekker vond</span>
                 </div>
                 <p className="text-sm text-zinc-400 leading-relaxed">
-                  Je bieren, proefsessies en glazen worden veilig opgeslagen op je persoonlijke account. Daarnaast kun je op elk moment een volledige back-up exporteren of importeren en kiezen tussen het donkere of lichte thema.
+                  Sta je voor het schap bij de slijterij of kijk je op de bierkaart in een café? Zoek snel op of je een bier al eerder hebt geproefd en welk cijfer je toen gaf.
                 </p>
               </div>
 
               <div className="space-y-3">
                 <div className="inline-flex items-center gap-2 text-sm font-bold text-zinc-100">
-                  <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Afgeschermde accounts zonder reclame</span>
+                  <Users className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Deel je passie met je biervrienden</span>
                 </div>
                 <p className="text-sm text-zinc-400 leading-relaxed">
-                  Jouw lijst is privé. Alleen vrienden die jij zelf via een vriendschapslink of QR-code accepteert, kunnen jouw lijst in alleen-lezen modus bekijken. Niemand anders kan jouw bieren aanpassen of verwijderen.
+                  Koppel eenvoudig met vrienden om inspiratie op te doen uit elkaars collecties, hoogste scores en glazenkasten.
                 </p>
               </div>
             </div>
@@ -1348,7 +1340,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Klaar om je eerste speciaalbier toe te voegen?
                 </h3>
                 <p className="text-sm text-zinc-300 leading-relaxed">
-                  Log in op je bestaande account of maak direct een nieuw account aan met je e-mailadres of Google.
+                  Log in op je bestaande account of maak gratis een eigen account aan met je e-mailadres of Google.
                 </p>
               </div>
 
@@ -1385,10 +1377,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               Cervisium
             </span>
             <span aria-hidden="true">&middot;</span>
-            <span>Persoonlijke craft bier &amp; proefnotities applicatie</span>
-            <span aria-hidden="true">&middot;</span>
-            <span className="font-mono tabular-nums text-zinc-400">
-              v{APP_VERSION}
+            <span>Jouw persoonlijke speciaalbier &amp; proefnotities boekje</span>
+            <span
+              translate="no"
+              data-no-translate="true"
+              className="notranslate inline-flex items-center px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400"
+              title={versionDate ? `Laatst bijgewerkt op ${versionDate}` : 'Huidige applicatieversie'}
+            >
+              v{appVersion}
               {versionDate ? ` (${versionDate})` : ''}
             </span>
           </div>
@@ -1398,7 +1394,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               App Voorbeelden
             </a>
             <a href="#wat-is-cervisium" className="hover:text-zinc-300 transition-colors">
-              Mogelijkheden
+              Wat kun je doen?
             </a>
             <button
               type="button"

@@ -479,6 +479,8 @@ var CentralDatabaseClient = class {
     // Fallback server-side store wanneer er lokaal nog geen PostgreSQL DATABASE_URL is ingesteld
     this.memoryUsers = /* @__PURE__ */ new Map();
     this.memoryCollections = /* @__PURE__ */ new Map();
+    this.memoryFriends = /* @__PURE__ */ new Map();
+    this.memorySystemSettings = /* @__PURE__ */ new Map();
   }
   isPostgresConfigured() {
     const url = process.env.DATABASE_URL?.trim();
@@ -521,6 +523,20 @@ var CentralDatabaseClient = class {
 
           CREATE INDEX IF NOT EXISTS idx_user_records_user_type
             ON user_records(user_id, collection_type);
+
+          CREATE TABLE IF NOT EXISTS user_friends (
+            user_id VARCHAR(128) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            friend_id VARCHAR(128) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status VARCHAR(20) NOT NULL DEFAULT 'accepted',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, friend_id)
+          );
+
+          CREATE TABLE IF NOT EXISTS system_settings (
+            key VARCHAR(64) PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
         `);
         this.initialized = true;
         await this.consolidateDuplicateDatabaseUsers();
@@ -538,7 +554,8 @@ var CentralDatabaseClient = class {
   }
   /**
    * Zorgt ervoor dat uitsluitend geverifieerde beheerder-accounts de rol 'admin' hebben
-   * zonder ooit bieren, proefnotities, glazen of categorieën van de eigenaar te wissen.
+   * en dat per ongeluk naar het admin-account gekopieerde records van andere gebruikers
+   * automatisch worden hersteld of opgeruimd uit de PostgreSQL database.
    */
   async repairCrossAccountContamination() {
     if (!this.pool) {
@@ -558,8 +575,53 @@ var CentralDatabaseClient = class {
           await this.pool.query("UPDATE users SET role = 'user' WHERE id = $1", [r.id]);
         }
       }
+      const adminUsersRes = await this.pool.query(
+        "SELECT id FROM users WHERE LOWER(email) = 'constantijnvanvuuren@gmail.com' OR role = 'admin'"
+      );
+      const adminIds = adminUsersRes.rows.map((r) => String(r.id));
+      if (adminIds.length > 0) {
+        await this.pool.query(
+          `
+          UPDATE user_records ur
+          SET user_id = ur.payload->>'userId'
+          FROM users u
+          WHERE ur.user_id = ANY($1::text[])
+            AND ur.payload->>'userId' IS NOT NULL
+            AND ur.payload->>'userId' <> ur.user_id
+            AND u.id = ur.payload->>'userId'
+            AND u.id NOT IN (SELECT id FROM users WHERE LOWER(email) = 'constantijnvanvuuren@gmail.com' OR role = 'admin')
+          ON CONFLICT (user_id, collection_type, id) DO NOTHING;
+          `,
+          [adminIds]
+        );
+        await this.pool.query(
+          `
+          DELETE FROM user_records
+          WHERE user_id = ANY($1::text[])
+            AND payload->>'userId' IS NOT NULL
+            AND payload->>'userId' <> user_id;
+          `,
+          [adminIds]
+        );
+        await this.pool.query(
+          `
+          DELETE FROM user_records ur
+          WHERE ur.user_id = ANY($1::text[])
+            AND EXISTS (
+              SELECT 1 FROM user_records other
+              WHERE other.id = ur.id
+                AND other.collection_type = ur.collection_type
+                AND other.user_id <> ur.user_id
+                AND other.user_id NOT IN (
+                  SELECT id FROM users WHERE LOWER(email) = 'constantijnvanvuuren@gmail.com' OR role = 'admin'
+                )
+            );
+          `,
+          [adminIds]
+        );
+      }
     } catch (err) {
-      console.warn("[Database] Controle admin-rol melding:", err instanceof Error ? err.message : err);
+      console.warn("[Database] Controle admin-rol & opschonen melding:", err instanceof Error ? err.message : err);
     }
   }
   async getForeignRecordIds(_userId) {
@@ -573,14 +635,10 @@ var CentralDatabaseClient = class {
    */
   async consolidateDuplicateDatabaseUsers() {
     if (!this.pool) {
-      let primaryOwnerUid = null;
       for (const [uid, u] of Array.from(this.memoryUsers.entries())) {
         const cleanEmail = u.email.trim().toLowerCase();
         if (!isPlaceholderEmailValue(cleanEmail)) {
           const canonicalId = getCanonicalUserIdForEmail(cleanEmail) || uid;
-          if (isVerifiedAdminEmail(cleanEmail, true) || !primaryOwnerUid) {
-            primaryOwnerUid = canonicalId;
-          }
           if (uid !== canonicalId) {
             const existingCanonical = this.memoryUsers.get(canonicalId);
             if (!existingCanonical) {
@@ -590,28 +648,17 @@ var CentralDatabaseClient = class {
           }
         }
       }
-      if (primaryOwnerUid) {
-        for (const [uid, u] of Array.from(this.memoryUsers.entries())) {
-          if (uid !== primaryOwnerUid && isPlaceholderEmailValue(u.email)) {
-            this.mergeMemoryUserInto(uid, primaryOwnerUid);
-          }
-        }
-      }
       return;
     }
     try {
       const res = await this.pool.query("SELECT * FROM users ORDER BY last_active_at DESC NULLS LAST");
       const rows = res.rows;
       if (rows.length === 0) return;
-      let primaryOwnerCanonicalId = null;
       for (const row of rows) {
         const email = typeof row.email === "string" ? row.email.trim().toLowerCase() : "";
         if (!isPlaceholderEmailValue(email)) {
           const canonicalId = getCanonicalUserIdForEmail(email);
           if (!canonicalId) continue;
-          if (isVerifiedAdminEmail(email, true) || !primaryOwnerCanonicalId) {
-            primaryOwnerCanonicalId = canonicalId;
-          }
           if (row.id !== canonicalId) {
             await this.pool.query(
               `
@@ -637,15 +684,6 @@ var CentralDatabaseClient = class {
             );
             await this.mergePostgresUserInto(row.id, canonicalId);
           }
-        }
-      }
-      if (primaryOwnerCanonicalId) {
-        const remainingGuests = await this.pool.query(
-          "SELECT id, email FROM users WHERE id <> $1 AND (email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl')",
-          [primaryOwnerCanonicalId]
-        );
-        for (const guestRow of remainingGuests.rows) {
-          await this.mergePostgresUserInto(guestRow.id, primaryOwnerCanonicalId);
         }
       }
     } catch (err) {
@@ -783,19 +821,14 @@ var CentralDatabaseClient = class {
         let inheritedSettings = cleanSettings;
         let inheritedCreatedAt = user.createdAt || nowIso;
         let oldIdsToMerge = [];
-        if (user.id && user.id !== safeId && isValidServerId(user.id)) {
-          oldIdsToMerge.push(user.id);
-        }
         if (safeEmail) {
-          const isOwner = isVerifiedAdminEmail(safeEmail, true);
           const emailCheck = await client.query(
             `
-            SELECT * FROM users
+            SELECT id, email, password_hash, avatar_url, google_name, settings, created_at
+            FROM users
             WHERE LOWER(email) = $1
-               OR id = $2
-               OR ($3::boolean = true AND (email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl'))
             `,
-            [safeEmail, user.id, isOwner]
+            [safeEmail]
           );
           for (const existingRow of emailCheck.rows) {
             if (existingRow.id !== safeId) {
@@ -902,9 +935,8 @@ var CentralDatabaseClient = class {
       }
     }
     if (safeEmail) {
-      const isOwner = isVerifiedAdminEmail(safeEmail, true);
       for (const [existingUid, existingUser] of Array.from(this.memoryUsers.entries())) {
-        if (existingUid !== safeId && (existingUser.email.toLowerCase() === safeEmail || isOwner && isPlaceholderEmailValue(existingUser.email))) {
+        if (existingUid !== safeId && existingUser.email.toLowerCase() === safeEmail) {
           this.mergeMemoryUserInto(existingUid, safeId);
         }
       }
@@ -990,7 +1022,6 @@ var CentralDatabaseClient = class {
       const userRes = await this.pool.query("SELECT id, email, role FROM users WHERE id = $1 LIMIT 1", [userId]);
       const userRow = userRes.rows[0];
       const userEmail = typeof userRow?.email === "string" && !isPlaceholderEmailValue(userRow.email) ? userRow.email.trim().toLowerCase() : null;
-      const isOwner = Boolean(userEmail && isVerifiedAdminEmail(userEmail, true)) || userRow?.role === "admin";
       const canonicalId = userEmail ? getCanonicalUserIdForEmail(userEmail) : userId;
       const res = await this.pool.query(
         `
@@ -999,10 +1030,9 @@ var CentralDatabaseClient = class {
         WHERE user_id = $1
            OR ($2::text IS NOT NULL AND user_id = $2)
            OR ($3::text IS NOT NULL AND user_id IN (SELECT id FROM users WHERE LOWER(email) = LOWER($3)))
-           OR ($4::boolean = true AND user_id IN (SELECT id FROM users WHERE email IS NULL OR email = '' OR LOWER(email) = 'gebruiker@bierlog.nl'))
         ORDER BY collection_type, payload->>'id', updated_at DESC
         `,
-        [userId, canonicalId, userEmail, isOwner]
+        [userId, canonicalId, userEmail]
       );
       const grouped = {
         categories: [],
@@ -1027,6 +1057,146 @@ var CentralDatabaseClient = class {
       glasses: Array.from(bucket.glasses.values()),
       pubDeals: Array.from(bucket.pubDeals.values()),
       sessions: Array.from(bucket.sessions.values())
+    };
+  }
+  // --- Vrienden Functionaliteit ---
+  async addFriendship(userId, targetIdentifier) {
+    await this.init();
+    if (!isValidServerId(userId)) {
+      return { success: false, message: "Ongeldige gebruiker." };
+    }
+    const cleanTarget = (targetIdentifier || "").trim().toLowerCase();
+    if (!cleanTarget) {
+      return { success: false, message: "Geen uitnodigingscode of vriend opgegeven." };
+    }
+    let friendProfile = null;
+    if (cleanTarget.includes("@")) {
+      friendProfile = await this.getUserByEmail(cleanTarget);
+    } else {
+      const canonicalTarget = getCanonicalUserIdForEmail(cleanTarget) || cleanTarget;
+      friendProfile = await this.getUserById(canonicalTarget);
+      if (!friendProfile && isValidServerId(cleanTarget)) {
+        friendProfile = await this.getUserById(cleanTarget);
+      }
+    }
+    if (!friendProfile) {
+      return { success: false, message: "Uitgenodigde gebruiker is niet gevonden." };
+    }
+    if (friendProfile.id === userId) {
+      return { success: false, message: "Je kunt jezelf niet als vriend toevoegen." };
+    }
+    if (this.pool) {
+      try {
+        await this.pool.query(
+          `
+          INSERT INTO user_friends (user_id, friend_id, status, created_at)
+          VALUES ($1, $2, 'accepted', NOW()), ($2, $1, 'accepted', NOW())
+          ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted';
+          `,
+          [userId, friendProfile.id]
+        );
+      } catch (err) {
+        console.warn("[Database] addFriendship fout:", err);
+      }
+    }
+    if (!this.memoryFriends.has(userId)) this.memoryFriends.set(userId, /* @__PURE__ */ new Set());
+    if (!this.memoryFriends.has(friendProfile.id)) this.memoryFriends.set(friendProfile.id, /* @__PURE__ */ new Set());
+    this.memoryFriends.get(userId).add(friendProfile.id);
+    this.memoryFriends.get(friendProfile.id).add(userId);
+    return {
+      success: true,
+      friend: friendProfile,
+      message: `Je bent nu vrienden met ${friendProfile.name}!`
+    };
+  }
+  async getFriendsForUser(userId) {
+    await this.init();
+    if (!isValidServerId(userId)) return [];
+    if (this.pool) {
+      try {
+        const res = await this.pool.query(
+          `
+          SELECT u.id, u.email, u.name, u.avatar_url, f.created_at,
+            (SELECT COUNT(*) FROM user_records ur WHERE ur.user_id = u.id AND ur.collection_type = 'beers') AS beer_count,
+            (SELECT COUNT(*) FROM user_records ur WHERE ur.user_id = u.id AND ur.collection_type = 'tastings') AS tasting_count
+          FROM user_friends f
+          JOIN users u ON u.id = f.friend_id
+          WHERE f.user_id = $1 AND f.status = 'accepted'
+          ORDER BY f.created_at DESC;
+          `,
+          [userId]
+        );
+        return res.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          email: r.email || "",
+          avatarUrl: r.avatar_url || void 0,
+          beerCount: Number(r.beer_count) || 0,
+          tastingCount: Number(r.tasting_count) || 0,
+          connectedAt: new Date(r.created_at).toISOString()
+        }));
+      } catch (err) {
+        console.warn("[Database] getFriendsForUser fout:", err);
+      }
+    }
+    const friendIds = Array.from(this.memoryFriends.get(userId) || []);
+    const list = [];
+    for (const fid of friendIds) {
+      const fUser = await this.getUserById(fid);
+      if (fUser) {
+        const recs = await this.getUserRecords(fid);
+        list.push({
+          id: fUser.id,
+          name: fUser.name,
+          email: fUser.email,
+          avatarUrl: fUser.avatarUrl,
+          beerCount: recs.beers.length,
+          tastingCount: recs.tastings.length,
+          connectedAt: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      }
+    }
+    return list;
+  }
+  async removeFriendship(userId, friendId) {
+    await this.init();
+    if (!isValidServerId(userId) || !isValidServerId(friendId)) return false;
+    if (this.pool) {
+      try {
+        await this.pool.query(
+          `DELETE FROM user_friends WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)`,
+          [userId, friendId]
+        );
+      } catch {
+      }
+    }
+    this.memoryFriends.get(userId)?.delete(friendId);
+    this.memoryFriends.get(friendId)?.delete(userId);
+    return true;
+  }
+  async getFriendRecords(userId, friendId) {
+    await this.init();
+    if (!isValidServerId(userId) || !isValidServerId(friendId)) return null;
+    const friendUser = await this.getUserById(friendId);
+    if (!friendUser) return null;
+    let isFriend = false;
+    if (this.pool) {
+      const check = await this.pool.query(
+        `SELECT 1 FROM user_friends WHERE user_id = $1 AND friend_id = $2 AND status = 'accepted' LIMIT 1`,
+        [userId, friendId]
+      );
+      isFriend = check.rows.length > 0;
+    } else {
+      isFriend = Boolean(this.memoryFriends.get(userId)?.has(friendId));
+    }
+    const isOwner = isVerifiedAdminEmail(friendUser.email, true);
+    if (!isFriend && !isOwner && userId !== friendId) {
+      return null;
+    }
+    const records = await this.getUserRecords(friendId);
+    return {
+      friend: friendUser,
+      records
     };
   }
   async exportAllData(exportedByEmail) {
@@ -1317,6 +1487,31 @@ var CentralDatabaseClient = class {
     await this.consolidateDuplicateDatabaseUsers();
     await this.repairCrossAccountContamination();
   }
+  async getSystemSetting(key, defaultValue = "") {
+    await this.init();
+    if (this.pool) {
+      try {
+        const res = await this.pool.query("SELECT value FROM system_settings WHERE key = $1", [key]);
+        if (res.rows.length > 0) return res.rows[0].value || defaultValue;
+      } catch {
+      }
+    }
+    return this.memorySystemSettings.get(key) ?? defaultValue;
+  }
+  async setSystemSetting(key, value) {
+    await this.init();
+    if (this.pool) {
+      try {
+        await this.pool.query(
+          `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+          [key, value]
+        );
+      } catch {
+      }
+    }
+    this.memorySystemSettings.set(key, value);
+  }
 };
 function sanitizeCollectionRecord(collectionType, id, userId, raw) {
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
@@ -1480,7 +1675,7 @@ async function startServer() {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), payment=(), usb=()");
+    res.setHeader("Permissions-Policy", "camera=(self), microphone=(), payment=(), usb=()");
     const fullUrl = req.originalUrl || req.url || "";
     const rawPath = (req.path || fullUrl).split("?")[0];
     let decodedPath = rawPath;
@@ -1892,8 +2087,35 @@ async function startServer() {
     try {
       const authUser = req.authUser;
       const body = req.body || {};
+      const authProfile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      const effectiveAuthUid = authProfile?.id || authUser.uid;
+      const isAdmin = authUser.role === "admin" || authProfile?.role === "admin" || isVerifiedAdminEmail(authUser.email, true);
+      const requestedTargetId = typeof body.targetUserId === "string" ? body.targetUserId.trim() : "";
+      let targetUid = effectiveAuthUid;
+      let syncMeta = {
+        email: authUser.email,
+        name: authUser.name,
+        role: authUser.role
+      };
+      if (requestedTargetId && requestedTargetId !== authUser.uid && requestedTargetId !== effectiveAuthUid) {
+        if (!isAdmin) {
+          res.status(403).json({
+            error: "Geen rechten om gegevens van een andere gebruiker te synchroniseren."
+          });
+          return;
+        }
+        targetUid = requestedTargetId;
+        const targetProfile = await centralDb.getUserById(requestedTargetId);
+        const targetEmailFromBody = typeof body.targetUserEmail === "string" ? body.targetUserEmail.trim() : "";
+        const targetNameFromBody = typeof body.targetUserName === "string" ? body.targetUserName.trim() : "";
+        syncMeta = {
+          email: targetProfile?.email || targetEmailFromBody || void 0,
+          name: targetProfile?.name || targetNameFromBody || "Bierliefhebber",
+          role: targetProfile?.role || "user"
+        };
+      }
       await centralDb.syncUserCollections(
-        authUser.uid,
+        targetUid,
         {
           categories: Array.isArray(body.categories) ? body.categories : void 0,
           beers: Array.isArray(body.beers) ? body.beers : void 0,
@@ -1902,11 +2124,7 @@ async function startServer() {
           pubDeals: Array.isArray(body.pubDeals) ? body.pubDeals : void 0,
           sessions: Array.isArray(body.sessions) ? body.sessions : void 0
         },
-        {
-          email: authUser.email,
-          name: authUser.name,
-          role: authUser.role
-        }
+        syncMeta
       );
       res.json({ ok: true });
     } catch (err) {
@@ -1920,7 +2138,17 @@ async function startServer() {
       const authUser = req.authUser;
       const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
       const effectiveUid = profile?.id || authUser.uid;
-      await centralDb.deleteUserRecord(effectiveUid, req.params.type, req.params.id);
+      const isAdmin = authUser.role === "admin" || profile?.role === "admin" || isVerifiedAdminEmail(authUser.email, true);
+      const requestedTargetId = typeof req.query.targetUserId === "string" ? req.query.targetUserId.trim() : "";
+      let targetUid = effectiveUid;
+      if (requestedTargetId && requestedTargetId !== authUser.uid && requestedTargetId !== effectiveUid) {
+        if (!isAdmin) {
+          res.status(403).json({ error: "Geen rechten om dit item te verwijderen." });
+          return;
+        }
+        targetUid = requestedTargetId;
+      }
+      await centralDb.deleteUserRecord(targetUid, req.params.type, req.params.id);
       res.json({ ok: true });
     } catch {
       res.status(400).json({ error: "Kon item niet verwijderen uit database." });
@@ -1931,10 +2159,131 @@ async function startServer() {
       const authUser = req.authUser;
       const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
       const effectiveUid = profile?.id || authUser.uid;
-      await centralDb.clearUserCollections(effectiveUid);
+      const isAdmin = authUser.role === "admin" || profile?.role === "admin" || isVerifiedAdminEmail(authUser.email, true);
+      const requestedTargetId = typeof req.query.targetUserId === "string" ? req.query.targetUserId.trim() : "";
+      let targetUid = effectiveUid;
+      if (requestedTargetId && requestedTargetId !== authUser.uid && requestedTargetId !== effectiveUid) {
+        if (!isAdmin) {
+          res.status(403).json({ error: "Geen rechten om gegevens van een ander te wissen." });
+          return;
+        }
+        targetUid = requestedTargetId;
+      }
+      await centralDb.clearUserCollections(targetUid);
       res.json({ ok: true });
     } catch {
       res.status(400).json({ error: "Kon gegevens niet wissen uit database." });
+    }
+  });
+  app.get("/api/friends", requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser;
+      const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      const friends = await centralDb.getFriendsForUser(effectiveUid);
+      res.json({ friends });
+    } catch {
+      res.status(500).json({ error: "Kon vriendenlijst niet ophalen." });
+    }
+  });
+  app.post("/api/friends/accept", requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser;
+      const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      const { inviteCode, friendId } = req.body || {};
+      const target = (inviteCode || friendId || "").trim();
+      if (!target) {
+        res.status(400).json({ error: "Geen uitnodiging of vriend gekozen." });
+        return;
+      }
+      const result = await centralDb.addFriendship(effectiveUid, target);
+      if (!result.success) {
+        res.status(400).json({ error: result.message });
+        return;
+      }
+      res.json({
+        ok: true,
+        message: result.message,
+        friend: result.friend ? {
+          id: result.friend.id,
+          name: result.friend.name,
+          email: result.friend.email,
+          avatarUrl: result.friend.avatarUrl
+        } : void 0
+      });
+    } catch {
+      res.status(500).json({ error: "Kon vriend niet toevoegen." });
+    }
+  });
+  app.delete("/api/friends/:friendId", requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser;
+      const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      await centralDb.removeFriendship(effectiveUid, req.params.friendId);
+      res.json({ ok: true });
+    } catch {
+      res.status(400).json({ error: "Kon vriend niet verwijderen." });
+    }
+  });
+  app.get("/api/friends/:friendId/records", requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser;
+      const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      const data = await centralDb.getFriendRecords(effectiveUid, req.params.friendId);
+      if (!data) {
+        res.status(403).json({ error: "Je bent nog geen vrienden met deze gebruiker." });
+        return;
+      }
+      res.json({
+        friend: {
+          id: data.friend.id,
+          name: data.friend.name,
+          email: data.friend.email,
+          avatarUrl: data.friend.avatarUrl
+        },
+        records: data.records
+      });
+    } catch {
+      res.status(500).json({ error: "Kon vrienden-collectie niet ophalen." });
+    }
+  });
+  app.get("/api/system/settings", async (_req, res) => {
+    try {
+      const customDomain = await centralDb.getSystemSetting(
+        "custom_domain",
+        "https://cervisium.nl"
+      );
+      res.json({ customDomain });
+    } catch {
+      res.json({ customDomain: "https://cervisium.nl" });
+    }
+  });
+  app.post("/api/system/settings", requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser;
+      if (authUser.role !== "admin" && !isVerifiedAdminEmail(authUser.email, true)) {
+        res.status(403).json({ error: "Alleen de beheerder kan het uitnodigingsdomein wijzigen." });
+        return;
+      }
+      let { customDomain } = req.body || {};
+      customDomain = (customDomain || "").trim();
+      if (customDomain) {
+        if (!/^https?:\/\//i.test(customDomain)) {
+          customDomain = `https://${customDomain}`;
+        }
+        customDomain = customDomain.replace(/\/+$/, "");
+      } else {
+        customDomain = "https://cervisium.nl";
+      }
+      await centralDb.setSystemSetting("custom_domain", customDomain);
+      res.json({ ok: true, customDomain });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "Kon systeeminstellingen niet opslaan."
+      });
     }
   });
   function isSafePublicUrl(rawUrl) {
@@ -2337,26 +2686,57 @@ async function startServer() {
     }
   });
   app.get("/api/version", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    const scoreVersion = (verStr) => {
+      const parts = String(verStr || "").trim().replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+      const major = Number.isFinite(parts[0]) ? parts[0] : 0;
+      const minor = Number.isFinite(parts[1]) ? parts[1] : 0;
+      const patch = Number.isFinite(parts[2]) ? parts[2] : 0;
+      return major * 1e6 + minor * 1e3 + patch;
+    };
     try {
-      const candidates = [
-        "/data/.app_version.json",
-        path.join(__dirname, "src", "version.json")
-      ];
+      const persistentPath = "/data/.app_version.json";
+      const repoVersionPath = path.join(__dirname, "src", "version.json");
+      const pkgVersionPath = path.join(__dirname, "package.json");
+      const candidates = [repoVersionPath, persistentPath, pkgVersionPath];
+      let best = null;
       for (const versionPath of candidates) {
         if (fs.existsSync(versionPath)) {
-          const parsed = JSON.parse(fs.readFileSync(versionPath, "utf8"));
-          if (parsed && parsed.version) {
-            res.json({
-              version: parsed.version,
-              updatedAt: parsed.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
-            });
-            return;
+          try {
+            const parsed = JSON.parse(fs.readFileSync(versionPath, "utf8"));
+            if (parsed && typeof parsed.version === "string" && parsed.version.trim()) {
+              const candidateVer = parsed.version.trim().replace(/^v/i, "");
+              if (!best || scoreVersion(candidateVer) > scoreVersion(best.version)) {
+                best = {
+                  version: candidateVer,
+                  updatedAt: typeof parsed.updatedAt === "string" && parsed.updatedAt ? parsed.updatedAt : (/* @__PURE__ */ new Date()).toISOString(),
+                  raw: parsed
+                };
+              }
+            }
+          } catch {
           }
         }
       }
+      if (best) {
+        if (fs.existsSync("/data") && best.raw) {
+          try {
+            const currentPersist = fs.existsSync(persistentPath) ? JSON.parse(fs.readFileSync(persistentPath, "utf8")) : null;
+            if (!currentPersist || scoreVersion(currentPersist.version) < scoreVersion(best.version)) {
+              fs.writeFileSync(persistentPath, JSON.stringify(best.raw, null, 2) + "\n", "utf8");
+            }
+          } catch {
+          }
+        }
+        res.json({
+          version: best.version,
+          updatedAt: best.updatedAt
+        });
+        return;
+      }
     } catch {
     }
-    res.json({ version: "2.6.0", updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+    res.json({ version: "2.6.11", updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
   });
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");

@@ -5,10 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig, Plugin } from 'vite';
 
+let hasSyncedThisProcess = false;
+
 function computeSourceTreeHash(rootDir: string): string {
   const hash = crypto.createHash('sha256');
   const targetDirs = ['src', 'server'];
-  const rootFiles = ['server.ts', 'index.html', 'package.json'];
+  const rootFiles = ['server.ts', 'index.html'];
 
   const walk = (dir: string) => {
     if (!fs.existsSync(dir)) return;
@@ -53,8 +55,14 @@ function computeSourceTreeHash(rootDir: string): string {
 }
 
 function syncAutoVersionOnBuild(rootDir: string): void {
+  if (hasSyncedThisProcess) return;
+  hasSyncedThisProcess = true;
+
   const versionFilePath = path.join(rootDir, 'src', 'version.json');
+  const packageJsonPath = path.join(rootDir, 'package.json');
+  const swFilePath = path.join(rootDir, 'public', 'sw.js');
   const persistentVersionPath = '/data/.app_version.json';
+
   try {
     const currentHash = computeSourceTreeHash(rootDir);
     let data = {
@@ -96,7 +104,8 @@ function syncAutoVersionOnBuild(rootDir: string): void {
       data = repoVersion;
     }
     if (dockerVersion) {
-      const dockerScore = dockerVersion.major * 1_000_000 + dockerVersion.minor * 1_000 + dockerVersion.patch;
+      const dockerScore =
+        dockerVersion.major * 1_000_000 + dockerVersion.minor * 1_000 + dockerVersion.patch;
       const repoScore = data.major * 1_000_000 + data.minor * 1_000 + data.patch;
       if (dockerScore > repoScore || (dockerScore === repoScore && dockerVersion.lastHash)) {
         data = dockerVersion;
@@ -110,10 +119,44 @@ function syncAutoVersionOnBuild(rootDir: string): void {
       data.version = `${data.major}.${data.minor}.${data.patch}`;
       data.updatedAt = new Date().toISOString();
       data.lastHash = currentHash;
+    } else {
+      data.version = `${data.major}.${data.minor}.${data.patch}`;
     }
 
     const serialized = JSON.stringify(data, null, 2) + '\n';
     fs.writeFileSync(versionFilePath, serialized, 'utf8');
+
+    // Houd package.json versienummer synchroon met src/version.json
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const pkgRaw = fs.readFileSync(packageJsonPath, 'utf8');
+        const pkg = JSON.parse(pkgRaw);
+        if (pkg && pkg.version !== data.version) {
+          pkg.version = data.version;
+          fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Houd Service Worker CACHE_NAME synchroon met het versienummer zodat browsers bij elke update verversen
+    if (fs.existsSync(swFilePath)) {
+      try {
+        const swRaw = fs.readFileSync(swFilePath, 'utf8');
+        const targetCacheLine = `const CACHE_NAME = 'cervisium-pwa-v${data.version}';`;
+        const updatedSw = swRaw.replace(
+          /^const CACHE_NAME = ['"]cervisium-pwa-[^'"]+['"];/m,
+          targetCacheLine
+        );
+        if (updatedSw !== swRaw) {
+          fs.writeFileSync(swFilePath, updatedSw, 'utf8');
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     if (fs.existsSync('/data')) {
       try {
         fs.writeFileSync(persistentVersionPath, serialized, 'utf8');

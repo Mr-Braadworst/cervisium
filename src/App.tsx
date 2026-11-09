@@ -90,7 +90,7 @@ import { AdminPanelView } from './components/AdminPanelView';
 import { isSuperAdmin, AdminUserSummary } from './services/adminService';
 import { setLanguagePreference } from './utils/i18n';
 import { getCanonicalUserIdForEmail } from './utils/security';
-import { APP_VERSION, getFormattedVersionDate } from './version';
+import { useAppVersion } from './version';
 import { Eye, ShieldCheck, ArrowLeft, Users } from 'lucide-react';
 
 function isClientFirestoreEnabled(): boolean {
@@ -117,29 +117,7 @@ export default function App() {
     activeUser ? getGlasses(activeUser.id) : []
   );
   const [pubDeals, setPubDeals] = useState<PubGlassDeal[]>(() => getStoredPubDeals());
-  const [appVersion, setAppVersion] = useState<string>(APP_VERSION);
-  const [versionDate, setVersionDate] = useState<string>(() => getFormattedVersionDate());
-
-  useEffect(() => {
-    fetch('/api/version')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.version) setAppVersion(String(data.version));
-        if (data?.updatedAt) {
-          const d = new Date(data.updatedAt);
-          if (!Number.isNaN(d.getTime())) {
-            setVersionDate(
-              d.toLocaleDateString('nl-NL', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-              })
-            );
-          }
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const { appVersion, versionDate } = useAppVersion();
 
   // Navigation tab (starts on the user's configured defaultStartTab)
   const [activeTab, setActiveTab] = useState<NavTab>(() =>

@@ -89,7 +89,7 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), payment=(), usb=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), payment=(), usb=()');
 
     const fullUrl = req.originalUrl || req.url || '';
     const rawPath = (req.path || fullUrl).split('?')[0];
@@ -1455,27 +1455,74 @@ async function startServer() {
   });
 
   app.get('/api/version', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    const scoreVersion = (verStr: string): number => {
+      const parts = String(verStr || '')
+        .trim()
+        .replace(/^v/i, '')
+        .split('.')
+        .map((n) => parseInt(n, 10));
+      const major = Number.isFinite(parts[0]) ? parts[0] : 0;
+      const minor = Number.isFinite(parts[1]) ? parts[1] : 0;
+      const patch = Number.isFinite(parts[2]) ? parts[2] : 0;
+      return major * 1_000_000 + minor * 1_000 + patch;
+    };
+
     try {
-      const candidates = [
-        '/data/.app_version.json',
-        path.join(__dirname, 'src', 'version.json'),
-      ];
+      const persistentPath = '/data/.app_version.json';
+      const repoVersionPath = path.join(__dirname, 'src', 'version.json');
+      const pkgVersionPath = path.join(__dirname, 'package.json');
+      const candidates = [repoVersionPath, persistentPath, pkgVersionPath];
+
+      let best: { version: string; updatedAt: string; raw?: Record<string, unknown> } | null = null;
+
       for (const versionPath of candidates) {
         if (fs.existsSync(versionPath)) {
-          const parsed = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
-          if (parsed && parsed.version) {
-            res.json({
-              version: parsed.version,
-              updatedAt: parsed.updatedAt || new Date().toISOString(),
-            });
-            return;
+          try {
+            const parsed = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+            if (parsed && typeof parsed.version === 'string' && parsed.version.trim()) {
+              const candidateVer = parsed.version.trim().replace(/^v/i, '');
+              if (!best || scoreVersion(candidateVer) > scoreVersion(best.version)) {
+                best = {
+                  version: candidateVer,
+                  updatedAt:
+                    typeof parsed.updatedAt === 'string' && parsed.updatedAt
+                      ? parsed.updatedAt
+                      : new Date().toISOString(),
+                  raw: parsed,
+                };
+              }
+            }
+          } catch {
+            // ignore malformed candidate
           }
         }
+      }
+
+      if (best) {
+        // Synchroniseer /data/.app_version.json als die achterloopt op de nieuwste build
+        if (fs.existsSync('/data') && best.raw) {
+          try {
+            const currentPersist = fs.existsSync(persistentPath)
+              ? JSON.parse(fs.readFileSync(persistentPath, 'utf8'))
+              : null;
+            if (!currentPersist || scoreVersion(currentPersist.version) < scoreVersion(best.version)) {
+              fs.writeFileSync(persistentPath, JSON.stringify(best.raw, null, 2) + '\n', 'utf8');
+            }
+          } catch {
+            // ignore write error
+          }
+        }
+        res.json({
+          version: best.version,
+          updatedAt: best.updatedAt,
+        });
+        return;
       }
     } catch {
       // ignore
     }
-    res.json({ version: '2.6.0', updatedAt: new Date().toISOString() });
+    res.json({ version: '2.6.11', updatedAt: new Date().toISOString() });
   });
 
   // ==========================================================================

@@ -1,7 +1,5 @@
-const CACHE_NAME = 'cervisium-pwa-v2';
+const CACHE_NAME = 'cervisium-pwa-v4';
 const PRECACHE_URLS = [
-  '/',
-  '/index.html',
   '/manifest.webmanifest',
   '/icon.png',
   '/favicon.png',
@@ -44,8 +42,20 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.pathname.startsWith('/api/')) return;
 
+  // Voor HTML en JS/TS modules altijd direct de nieuwste versie van de server ophalen
+  const isCodeOrHtml =
+    req.mode === 'navigate' ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.tsx') ||
+    url.pathname.endsWith('.ts') ||
+    url.pathname.startsWith('/src/');
+
+  const fetchReq = isCodeOrHtml ? new Request(req, { cache: 'no-cache' }) : req;
+
   event.respondWith(
-    fetch(req)
+    fetch(fetchReq)
       .then((networkRes) => {
         if (
           networkRes &&

@@ -19,7 +19,8 @@ import {
   Upload,
   Camera,
 } from 'lucide-react';
-import { validateAndCompressImageFile, formatDataUrlSizeKb, sanitizeImageUrl } from '../utils/security';
+import { CameraCaptureModal } from './CameraCaptureModal';
+import { validateAndCompressImageFile, sanitizeImageUrl } from '../utils/security';
 
 interface PhotoLightboxModalProps {
   isOpen: boolean;
@@ -77,8 +78,8 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
   const [currentPhotoUrl, setCurrentPhotoUrl] = useState<string>(photoUrl);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Dragging support on preview
   const [isDragging, setIsDragging] = useState(false);
@@ -114,11 +115,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
     }
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-
+  const processCapturedFile = async (file: File) => {
     try {
       const compressedDataUrl = await validateAndCompressImageFile(file, 850, 0.82);
       setCurrentPhotoUrl(compressedDataUrl);
@@ -133,6 +130,13 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
     } catch (err) {
       console.warn('Image upload rejected:', err);
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    await processCapturedFile(file);
   };
 
   const handleReset = () => {
@@ -463,14 +467,6 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
                 {/* Upload / Replace Photo Option (Camera + Galerij) */}
                 <div className="space-y-2">
                   <input
-                    ref={cameraInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                  <input
                     ref={fileInputRef}
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,image/*"
@@ -480,8 +476,8 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => cameraInputRef.current?.click()}
-                      className="py-2.5 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                      onClick={() => setCameraModalOpen(true)}
+                      className="py-2.5 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
                     >
                       <Camera className="w-4 h-4 text-amber-400" />
                       <span>Maak foto</span>
@@ -489,7 +485,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 hover:border-amber-500/50 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                      className="py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 hover:border-amber-500/50 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
                     >
                       <Upload className="w-4 h-4 text-amber-400" />
                       <span>Kies foto</span>
@@ -498,9 +494,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
                   {uploadSuccess && (
                     <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-emerald-400">
                       <Check className="w-3.5 h-3.5" />
-                      <span>
-                        Nieuwe foto geladen ({formatDataUrlSizeKb(currentPhotoUrl) || '≤ 80 KB'})!
-                      </span>
+                      <span>Nieuwe foto geladen!</span>
                     </div>
                   )}
                 </div>
@@ -638,6 +632,15 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
           </div>
         )}
       </div>
+
+      <CameraCaptureModal
+        isOpen={cameraModalOpen}
+        onClose={() => setCameraModalOpen(false)}
+        title="Maak een nieuwe foto"
+        onCaptureFile={(file) => {
+          processCapturedFile(file);
+        }}
+      />
     </div>
   );
 };
