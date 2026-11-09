@@ -81,6 +81,7 @@ import { BeerModal } from './components/BeerModal';
 import { BeerDetailModal } from './components/BeerDetailModal';
 import { AccountModal } from './components/AccountModal';
 import { LoginScreen } from './components/LoginScreen';
+import { LandingPage } from './components/LandingPage';
 import { AddTastingModal } from './components/AddTastingModal';
 import { BeerGlassesView } from './components/BeerGlassesView';
 import { ExtrasHubView } from './components/ExtrasHubView';
@@ -163,6 +164,8 @@ export default function App() {
     glasses: BeerGlass[];
   } | null>(null);
   const [friendNotice, setFriendNotice] = useState<string | null>(null);
+  const [showLoginScreen, setShowLoginScreen] = useState<boolean>(false);
+  const [loginInitialMode, setLoginInitialMode] = useState<'login' | 'register'>('login');
 
   // Verwerk inkomende uitnodigingslink in de URL (?invite=... of ?friend=...)
   useEffect(() => {
@@ -561,7 +564,7 @@ export default function App() {
 
   // Add or update category
   const handleAddCategory = async (name: string, color?: string, description?: string): Promise<Category> => {
-    if (!activeUser) throw new Error('No user');
+    if (!activeUser || viewingFriend) throw new Error('No user or viewing friend');
     const catColor = color || '#f59e0b';
     const localCat = addCategoryLocal(activeUser.id, name, catColor, description);
     setCategories((prev) => [...prev, localCat]);
@@ -575,7 +578,7 @@ export default function App() {
   };
 
   const handleUpdateCategory = async (id: string, name: string, color: string, description?: string) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const updated = updateCategoryLocal(activeUser.id, id, name, color, description);
     if (updated) {
       setCategories((prev) => prev.map((c) => (c.id === id ? updated : c)));
@@ -588,7 +591,7 @@ export default function App() {
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     deleteCategoryLocal(activeUser.id, id);
     setCategories((prev) => prev.filter((c) => c.id !== id));
     try {
@@ -600,7 +603,7 @@ export default function App() {
 
   // Preset categories suggestion loader
   const handleLoadPresetSuggestions = () => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const presets = [
       { name: 'IPA (India Pale Ale)', color: '#f59e0b', desc: 'Hoppig, fris en bitter' },
       { name: 'Tripel', color: '#eab308', desc: 'Goudblond, krachtig en kruidig' },
@@ -618,7 +621,7 @@ export default function App() {
     beerData: Omit<Beer, 'id' | 'userId' | 'dateAdded'>,
     tastingData: { rating: number; notes?: string; location?: string; servingType?: 'tap' | 'fles' | 'blik'; date: string }
   ) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
 
     if (editingBeer) {
       // Just edit beer profile info
@@ -728,7 +731,7 @@ export default function App() {
   };
 
   const handleAddTasting = async (beerId: string, tastingData: Omit<Tasting, 'id' | 'beerId'>) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const createdTasting = addTastingLocal(activeUser.id, { beerId, ...tastingData });
     setTastings((prev) => [...prev, createdTasting]);
 
@@ -740,7 +743,7 @@ export default function App() {
   };
 
   const handleUpdateTasting = async (tastingId: string, updates: Partial<Tasting>) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const updated = updateTastingLocal(activeUser.id, tastingId, updates);
     if (updated) {
       setTastings((prev) => prev.map((t) => (t.id === tastingId ? updated : t)));
@@ -753,7 +756,7 @@ export default function App() {
   };
 
   const handleDeleteTasting = async (tastingId: string) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     deleteTastingLocal(activeUser.id, tastingId);
     setTastings((prev) => prev.filter((t) => t.id !== tastingId));
     try {
@@ -764,7 +767,7 @@ export default function App() {
   };
 
   const handleDeleteBeer = async (beerId: string) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const relatedTastings = tastings.filter((t) => t.beerId === beerId);
     deleteBeerLocal(activeUser.id, beerId);
     setBeers((prev) => prev.filter((b) => b.id !== beerId));
@@ -783,7 +786,7 @@ export default function App() {
   };
 
   const handleToggleFavorite = async (beer: Beer) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const newStatus = !beer.favorite;
     const updated = updateBeerLocal(activeUser.id, beer.id, { favorite: newStatus });
     if (updated) {
@@ -805,7 +808,7 @@ export default function App() {
     photoZoom?: number,
     newPhotoUrl?: string
   ) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const updates: Partial<Beer> = {
       photoPosition,
       photoZoom,
@@ -827,7 +830,7 @@ export default function App() {
 
   // Beer Glasses CRUD
   const handleAddGlass = async (glassData: Omit<BeerGlass, 'id' | 'userId' | 'dateAdded'> & { dateAdded?: string }) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const createdGlass = addGlassLocal(activeUser.id, glassData);
     setGlasses((prev) => [...prev, createdGlass]);
     try {
@@ -838,7 +841,7 @@ export default function App() {
   };
 
   const handleUpdateGlass = async (glassId: string, updates: Partial<BeerGlass>) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     const updated = updateGlassLocal(activeUser.id, glassId, updates);
     if (updated) {
       setGlasses((prev) => prev.map((g) => (g.id === glassId ? updated : g)));
@@ -851,7 +854,7 @@ export default function App() {
   };
 
   const handleDeleteGlass = async (glassId: string) => {
-    if (!activeUser) return;
+    if (!activeUser || viewingFriend) return;
     deleteGlassLocal(activeUser.id, glassId);
     setGlasses((prev) => prev.filter((g) => g.id !== glassId));
     try {
@@ -963,12 +966,46 @@ export default function App() {
     }
   };
 
-  // If user is not logged in, present Google Sign-In Screen
+  // If user is not logged in, present the Landing Page ("Voorpagina") or LoginScreen
   if (!activeUser) {
+    let hasInvite = false;
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        hasInvite = Boolean(
+          params.get('invite') ||
+            params.get('friend') ||
+            localStorage.getItem('bierlog_pending_invite')
+        );
+      }
+    } catch {}
+
+    if (!showLoginScreen) {
+      return (
+        <LandingPage
+          hasPendingInvite={hasInvite}
+          onOpenLogin={(mode = 'login') => {
+            setLoginInitialMode(mode);
+            setShowLoginScreen(true);
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+        />
+      );
+    }
+
     return (
       <LoginScreen
         onLogin={handleLogin}
         recentUsers={getAllUsers()}
+        initialMode={loginInitialMode}
+        onBackToLanding={() => {
+          setShowLoginScreen(false);
+          if (typeof window !== 'undefined') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
       />
     );
   }
@@ -1321,7 +1358,9 @@ export default function App() {
         category={selectedBeerCategory}
         isOpen={!!selectedBeer}
         onClose={() => setSelectedBeer(null)}
+        readOnly={Boolean(viewingFriend)}
         onEdit={(beer) => {
+          if (viewingFriend) return;
           setSelectedBeer(null);
           setEditingBeer(beer);
           setBeerModalOpen(true);
@@ -1329,12 +1368,14 @@ export default function App() {
         onDelete={handleDeleteBeer}
         onToggleFavorite={handleToggleFavorite}
         onOpenAddTasting={(beer) => {
+          if (viewingFriend) return;
           setEditingTasting(null);
           setPrefillTastingDraft(null);
           setTastingBeer(beer);
         }}
         onDeleteTasting={handleDeleteTasting}
         onEditTasting={(tasting) => {
+          if (viewingFriend) return;
           setPrefillTastingDraft(null);
           setTastingBeer(selectedBeer);
           setEditingTasting(tasting);

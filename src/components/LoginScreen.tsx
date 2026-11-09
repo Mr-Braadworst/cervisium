@@ -33,11 +33,14 @@ import {
   User,
   LogIn,
   UserPlus,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface LoginScreenProps {
   onLogin: (user: UserAccount) => void;
   recentUsers: UserAccount[];
+  initialMode?: 'login' | 'register';
+  onBackToLanding?: () => void;
 }
 
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -84,8 +87,12 @@ const STANDALONE_GOOGLE_CLIENT_ID = (
     ?.VITE_GOOGLE_CLIENT_ID || '') as string
 ).trim();
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+export const LoginScreen: React.FC<LoginScreenProps> = ({
+  onLogin,
+  initialMode = 'login',
+  onBackToLanding,
+}) => {
+  const [authMode, setAuthMode] = useState<'login' | 'register'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -636,6 +643,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
       {/* Main Container */}
       <div className="w-full max-w-md relative z-10 space-y-6">
+        {onBackToLanding && (
+          <div>
+            <button
+              type="button"
+              onClick={onBackToLanding}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Terug naar de voorpagina &amp; uitleg</span>
+            </button>
+          </div>
+        )}
+
         {/* Brand Header */}
         <div className="text-center space-y-3">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-zinc-950 shadow-xl shadow-amber-500/25 ring-4 ring-amber-500/20 mb-1">

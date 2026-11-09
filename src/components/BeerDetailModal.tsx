@@ -98,17 +98,19 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => onToggleFavorite(beer)}
-                className={`p-2 rounded-xl border transition-colors ${
-                  beer.favorite
-                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                    : 'bg-zinc-800/80 text-zinc-400 border-zinc-700 hover:text-zinc-200'
-                }`}
-                title={beer.favorite ? 'Verwijder favoriet' : 'Favoriet maken'}
-              >
-                <Heart className={`w-4 h-4 ${beer.favorite ? 'text-rose-500 fill-rose-500' : ''}`} />
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => onToggleFavorite(beer)}
+                  className={`p-2 rounded-xl border transition-colors ${
+                    beer.favorite
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                      : 'bg-zinc-800/80 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                  }`}
+                  title={beer.favorite ? 'Verwijder favoriet' : 'Favoriet maken'}
+                >
+                  <Heart className={`w-4 h-4 ${beer.favorite ? 'text-rose-500 fill-rose-500' : ''}`} />
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="p-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
@@ -126,7 +128,7 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
                   type="button"
                   onClick={() => setShowLightbox(true)}
                   className="relative w-24 h-24 rounded-2xl overflow-hidden border-2 border-zinc-700 hover:border-amber-400 group shadow-md transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  title="Klik om de foto in volledige grootte te zien of te positioneren"
+                  title="Klik om de foto in volledige grootte te zien"
                 >
                   <img
                     src={heroPhoto}
@@ -147,14 +149,16 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
                   </div>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setShowLightbox(true)}
-                  className="inline-flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300 font-semibold transition-colors"
-                >
-                  <Sliders className="w-3 h-3" />
-                  <span>Positioneer foto</span>
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setShowLightbox(true)}
+                    className="inline-flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300 font-semibold transition-colors"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    <span>Positioneer foto</span>
+                  </button>
+                )}
               </div>
             )}
             <div>
@@ -184,15 +188,17 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
         </div>
 
         {/* Primary CTA: "Drink Again" / Add Tasting button */}
-        <div className="mt-5">
-          <button
-            onClick={() => onOpenAddTasting(beer)}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.01] active:scale-[0.99]"
-          >
-            <PlusCircle className="w-4 h-4 stroke-[2.5]" />
-            Nog een keer gedronken? Opnieuw ranken &amp; locatie toevoegen
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="mt-5">
+            <button
+              onClick={() => onOpenAddTasting(beer)}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.01] active:scale-[0.99]"
+            >
+              <PlusCircle className="w-4 h-4 stroke-[2.5]" />
+              Nog een keer gedronken? Opnieuw ranken &amp; locatie toevoegen
+            </button>
+          </div>
+        )}
 
         {/* Tastings History List with locations */}
         <div className="mt-6">
@@ -210,7 +216,7 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
             </div>
           ) : (
             <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
-              {sortedTastings.map((tasting, idx) => (
+              {sortedTastings.map((tasting) => (
                 <div
                   key={tasting.id}
                   className="p-3.5 rounded-xl bg-zinc-950/70 border border-zinc-800/80 hover:border-zinc-700 transition-colors space-y-1.5"
@@ -241,7 +247,7 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
                           year: 'numeric',
                         })}
                       </span>
-                      {onEditTasting && (
+                      {!readOnly && onEditTasting && (
                         <button
                           onClick={() => onEditTasting(tasting)}
                           className="p-1 text-zinc-500 hover:text-amber-400 transition-colors"
@@ -250,7 +256,7 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
                           <Edit3 className="w-3 h-3" />
                         </button>
                       )}
-                      {onDeleteTasting && sortedTastings.length > 1 && (
+                      {!readOnly && onDeleteTasting && sortedTastings.length > 1 && (
                         <button
                           onClick={() => setTastingToDelete(tasting)}
                           className="p-1 text-zinc-500 hover:text-rose-400 transition-colors"
@@ -275,25 +281,31 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
 
         {/* Footer actions */}
         <div className="mt-6 pt-4 border-t border-zinc-800 flex items-center justify-between">
-          <button
-            onClick={() => setConfirmDeleteBeer(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Bier Verwijderen
-          </button>
+          {!readOnly ? (
+            <button
+              onClick={() => setConfirmDeleteBeer(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Bier Verwijderen
+            </button>
+          ) : (
+            <span className="text-xs text-zinc-500 italic">Alleen-lezen weergave</span>
+          )}
 
           <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => {
-                onClose();
-                onEdit(beer);
-              }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 transition-colors"
-            >
-              <Edit3 className="w-4 h-4" />
-              Bewerken
-            </button>
+            {!readOnly && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onEdit(beer);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 transition-colors"
+              >
+                <Edit3 className="w-4 h-4" />
+                Bewerken
+              </button>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-xl text-xs font-semibold bg-zinc-800 text-zinc-300 hover:text-white"
@@ -315,11 +327,13 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
         subtitle={beer.brewery || category?.name}
         initialPosition={beer.photoPosition || '50% 50%'}
         initialZoom={beer.photoZoom || 1.0}
-        onSavePosition={(newPosition, newZoom, newPhotoUrl) => {
-          if (onUpdatePhotoPosition) {
-            onUpdatePhotoPosition(beer.id, newPosition, newZoom, newPhotoUrl);
-          }
-        }}
+        onSavePosition={
+          !readOnly && onUpdatePhotoPosition
+            ? (newPosition, newZoom, newPhotoUrl) => {
+                onUpdatePhotoPosition(beer.id, newPosition, newZoom, newPhotoUrl);
+              }
+            : undefined
+        }
       />
     )}
 
