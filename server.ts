@@ -115,9 +115,30 @@ async function startServer() {
       return;
     }
 
-    if (decodedPath.startsWith('/api/')) {
+    if (decodedPath === '/api' || decodedPath.startsWith('/api/')) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
       res.setHeader('Pragma', 'no-cache');
+
+      // Blokkeer directe toegang via de browser-adresbalk (Sec-Fetch-Mode: navigate / Accept: text/html),
+      // maar laat JavaScript fetch()-verzoeken vanuit de app gewoon door.
+      if (decodedPath !== '/api/health') {
+        const secFetchMode = String(req.headers['sec-fetch-mode'] || '').toLowerCase();
+        const secFetchDest = String(req.headers['sec-fetch-dest'] || '').toLowerCase();
+        const acceptHeader = String(req.headers.accept || '').toLowerCase();
+
+        const isDirectBrowserNavigation =
+          secFetchMode === 'navigate' ||
+          secFetchDest === 'document' ||
+          secFetchDest === 'iframe' ||
+          acceptHeader.includes('text/html');
+
+        if (isDirectBrowserNavigation) {
+          res.status(403).json({
+            error: 'Directe toegang tot de API via de browser-adresbalk is uitgeschakeld.',
+          });
+          return;
+        }
+      }
     }
 
     next();
@@ -1525,6 +1546,11 @@ async function startServer() {
     res.json({ version: '2.6.11', updatedAt: new Date().toISOString() });
   });
 
+  // Vang onbekende /api/* URL's (zoals /api/me.) altijd af met 404 zodat ze nooit in index.html vallen
+  app.all('/api/*', (_req, res) => {
+    res.status(404).json({ error: 'API-eindpunt niet gevonden.' });
+  });
+
   // ==========================================================================
   // 5. FRONTEND SERVERING (Vite middleware in dev, statische dist/ in prod)
   // ==========================================================================
@@ -1539,50 +1565,13 @@ async function startServer() {
     const distPath = path.join(__dirname, 'dist');
     const indexPath = path.join(distPath, 'index.html');
 
-    const renderIndexHtmlWithRuntimeConfig = (): string | null => {
-      try {
-        if (!fs.existsSync(indexPath)) return null;
-        let rawHtml = fs.readFileSync(indexPath, 'utf8');
-        const runtimeConfig = getRuntimeFirebaseConfig();
-        if (runtimeConfig) {
-          const safeJson = JSON.stringify(runtimeConfig)
-            .replace(/</g, '\\u003c')
-            .replace(/>/g, '\\u003e')
-            .replace(/&/g, '\\u0026')
-            .replace(/\u2028/g, '\\u2028')
-            .replace(/\u2029/g, '\\u2029');
-          const scriptTag = `<script id="bierlog-runtime-firebase">window.__BIERLOG_FIREBASE_CONFIG__=${safeJson};</script>`;
-          rawHtml = rawHtml.replace(
-            /<script id="bierlog-runtime-firebase">[\s\S]*?<\/script>/g,
-            ''
-          );
-          rawHtml = rawHtml.replace(
-            /<script>window\.__BIERLOG_FIREBASE_CONFIG__=[\s\S]*?<\/script>/g,
-            ''
-          );
-          rawHtml = rawHtml.replace('<head>', `<head>${scriptTag}`);
-        }
-        return rawHtml;
-      } catch {
-        return null;
-      }
-    };
-
     const sendIndexHtml = (_req: express.Request, res: express.Response) => {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
-      const html = renderIndexHtmlWithRuntimeConfig();
-      if (html) {
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.send(html);
-        return;
-      }
       res.sendFile(indexPath);
     };
 
-    // Onderschep / en /index.html vóór express.static zodat ook Service Workers
-    // NOOIT een onbewerkte dist/index.html zonder window.__BIERLOG_FIREBASE_CONFIG__ krijgen
     app.get(['/', '/index.html'], sendIndexHtml);
 
     app.use(

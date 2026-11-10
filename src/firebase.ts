@@ -131,6 +131,9 @@ export async function syncFirebaseConfigFromServer(): Promise<Auth> {
     const res = await fetch('/api/firebase-config', {
       method: 'GET',
       cache: 'no-store',
+      headers: {
+        'X-Requested-With': 'CervisiumApp',
+      },
     });
     if (res.ok) {
       const data = (await res.json()) as {
