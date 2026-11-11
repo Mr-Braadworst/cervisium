@@ -125,6 +125,8 @@ export interface PubGlassDeal {
   matchedKeywords?: string[]; // Gevonden actie-trefwoorden op de pagina
 }
 
+export type PubDeal = PubGlassDeal;
+
 export type AppLanguagePreference = 'auto' | 'nl' | 'en' | 'de' | 'fr' | 'es';
 
 export interface UserSettings {
@@ -139,6 +141,38 @@ export interface UserSettings {
   defaultGlassSizeCl: number;
 }
 
+export interface PubCrawlStop {
+  id: string;
+  pubName: string;
+  address: string;
+  city?: string;
+  specialty?: string;
+  recommendedBeer?: string;
+  notes?: string;
+  lat?: number;
+  lng?: number;
+  visited?: boolean;
+}
+
+export interface PubCrawl {
+  id: string;
+  userId?: string;
+  title: string;
+  city: string;
+  description?: string;
+  stops: PubCrawlStop[];
+  createdBy?: string;
+  sharedBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ActivePubCrawlState {
+  pubCrawl: PubCrawl;
+  currentStopIndex: number;
+  visitedStopIds: string[];
+  startedAt: string;
+}
 
 export type SortField = 'rating' | 'name' | 'abv' | 'date';
 export type SortDirection = 'asc' | 'desc';

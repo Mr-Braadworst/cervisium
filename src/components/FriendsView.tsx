@@ -41,8 +41,6 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
 }) => {
   const [friends, setFriends] = useState<FriendUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [manualCode, setManualCode] = useState('');
-  const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [friendToRemove, setFriendToRemove] = useState<FriendUser | null>(null);
@@ -103,28 +101,6 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
-  };
-
-  const handleManualAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = manualCode.trim();
-    if (!code) return;
-
-    setAdding(true);
-    setStatusMessage(null);
-
-    const res = await acceptFriendInvite(code);
-    if (res.success) {
-      setStatusMessage({ type: 'success', text: res.message });
-      if (res.friend) {
-        onFriendAdded?.(res.friend, `Je bent nu gekoppeld met ${res.friend.name}!`);
-      }
-      setManualCode('');
-      await loadFriends();
-    } else {
-      setStatusMessage({ type: 'error', text: res.message });
-    }
-    setAdding(false);
   };
 
   const handleRemoveFriend = async () => {
@@ -311,41 +287,28 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
         </div>
       </div>
 
-      {/* Section 2: Handmatig Uitnodiging / QR Scannen */}
-      <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-6 shadow-lg space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
-          <h2 className="text-sm font-bold text-zinc-200 flex items-center gap-2">
-            <Share2 className="w-4 h-4 text-amber-400" />
-            Vriend Uitnodiging Accepteren
-          </h2>
+      {/* Section 2: QR Scannen om uitnodiging te accepteren */}
+      <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-6 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-bold text-zinc-200 flex items-center gap-2">
+              <Share2 className="w-4 h-4 text-amber-400" />
+              Vriend Uitnodiging Accepteren via QR-Code
+            </h2>
+            <p className="text-xs text-zinc-400">
+              Scan de persoonlijke QR-code op de telefoon van je vriend of open zijn/haar gedeelde uitnodigingslink om vrienden te worden.
+            </p>
+          </div>
 
           <button
             type="button"
             onClick={() => setScanQrModalOpen(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all cursor-pointer self-start sm:self-auto"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition-all cursor-pointer self-start sm:self-auto shrink-0"
           >
             <Camera className="w-4 h-4 text-zinc-950" />
             Scan QR-Code van Vriend 📷
           </button>
         </div>
-
-        <form onSubmit={handleManualAdd} className="flex flex-col sm:flex-row gap-2.5">
-          <input
-            type="text"
-            placeholder="Plak uitnodigingscode (bijv. usr_...) of e-mailadres van vriend..."
-            value={manualCode}
-            onChange={(e) => setManualCode(e.target.value)}
-            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-          />
-          <button
-            type="submit"
-            disabled={adding || !manualCode.trim()}
-            className="px-5 py-2.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-100 text-xs font-bold transition-colors shrink-0 flex items-center justify-center gap-2"
-          >
-            {adding ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-            Koppelen
-          </button>
-        </form>
       </div>
 
       {/* Section 3: Mijn Vriendenlijst */}

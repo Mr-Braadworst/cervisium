@@ -465,7 +465,8 @@ var ALLOWED_COLLECTION_TYPES = /* @__PURE__ */ new Set([
   "tastings",
   "glasses",
   "pubDeals",
-  "sessions"
+  "sessions",
+  "pubCrawls"
 ]);
 function isPlaceholderEmailValue(email) {
   if (!email) return true;
@@ -702,7 +703,8 @@ var CentralDatabaseClient = class {
         "tastings",
         "glasses",
         "pubDeals",
-        "sessions"
+        "sessions",
+        "pubCrawls"
       ];
       for (const col of cols) {
         sourceBucket[col].forEach((val, key) => {
@@ -772,7 +774,8 @@ var CentralDatabaseClient = class {
         tastings: /* @__PURE__ */ new Map(),
         glasses: /* @__PURE__ */ new Map(),
         pubDeals: /* @__PURE__ */ new Map(),
-        sessions: /* @__PURE__ */ new Map()
+        sessions: /* @__PURE__ */ new Map(),
+        pubCrawls: /* @__PURE__ */ new Map()
       });
     }
     return this.memoryCollections.get(userId);
@@ -1016,7 +1019,7 @@ var CentralDatabaseClient = class {
   async getUserRecords(userId) {
     await this.init();
     if (!isValidServerId(userId)) {
-      return { categories: [], beers: [], tastings: [], glasses: [], pubDeals: [], sessions: [] };
+      return { categories: [], beers: [], tastings: [], glasses: [], pubDeals: [], sessions: [], pubCrawls: [] };
     }
     await this.repairCrossAccountContamination();
     if (this.pool) {
@@ -1041,7 +1044,8 @@ var CentralDatabaseClient = class {
         tastings: [],
         glasses: [],
         pubDeals: [],
-        sessions: []
+        sessions: [],
+        pubCrawls: []
       };
       for (const row of res.rows) {
         if (grouped[row.collection_type]) {
@@ -1057,7 +1061,8 @@ var CentralDatabaseClient = class {
       tastings: Array.from(bucket.tastings.values()),
       glasses: Array.from(bucket.glasses.values()),
       pubDeals: Array.from(bucket.pubDeals.values()),
-      sessions: Array.from(bucket.sessions.values())
+      sessions: Array.from(bucket.sessions.values()),
+      pubCrawls: Array.from(bucket.pubCrawls.values())
     };
   }
   // --- Vrienden Functionaliteit ---
@@ -1066,19 +1071,34 @@ var CentralDatabaseClient = class {
     if (!isValidServerId(userId)) {
       return { success: false, message: "Ongeldige gebruiker." };
     }
-    const cleanTarget = (targetIdentifier || "").trim().toLowerCase();
-    if (!cleanTarget) {
-      return { success: false, message: "Geen uitnodigingscode of vriend opgegeven." };
+    const rawTarget = (targetIdentifier || "").trim();
+    if (!rawTarget) {
+      return { success: false, message: "Geen uitnodigingscode opgegeven." };
     }
-    let friendProfile = null;
-    if (cleanTarget.includes("@")) {
-      friendProfile = await this.getUserByEmail(cleanTarget);
-    } else {
-      const canonicalTarget = getCanonicalUserIdForEmail(cleanTarget) || cleanTarget;
-      friendProfile = await this.getUserById(canonicalTarget);
-      if (!friendProfile && isValidServerId(cleanTarget)) {
-        friendProfile = await this.getUserById(cleanTarget);
+    if (rawTarget.includes("@")) {
+      return {
+        success: false,
+        message: "Vrienden toevoegen via e-mailadres is niet mogelijk. Gebruik een persoonlijke uitnodigingslink of scan de QR-code."
+      };
+    }
+    let extractedTarget = rawTarget;
+    try {
+      if (rawTarget.startsWith("http://") || rawTarget.startsWith("https://")) {
+        const parsedUrl = new URL(rawTarget);
+        const paramCode = parsedUrl.searchParams.get("invite") || parsedUrl.searchParams.get("friend");
+        if (paramCode) extractedTarget = paramCode.trim();
       }
+    } catch {
+    }
+    if (extractedTarget.includes("@") || !isValidServerId(extractedTarget)) {
+      return {
+        success: false,
+        message: "Ongeldige uitnodigingscode. Gebruik een geldige uitnodigingslink of QR-code."
+      };
+    }
+    let friendProfile = await this.getUserById(extractedTarget);
+    if (!friendProfile) {
+      friendProfile = await this.getUserById(extractedTarget.toLowerCase());
     }
     if (!friendProfile) {
       return { success: false, message: "Uitgenodigde gebruiker is niet gevonden." };
@@ -1453,6 +1473,7 @@ var CentralDatabaseClient = class {
     bucket.tastings.clear();
     bucket.glasses.clear();
     bucket.sessions.clear();
+    bucket.pubCrawls.clear();
     return true;
   }
   /**
@@ -1477,7 +1498,8 @@ var CentralDatabaseClient = class {
       "tastings",
       "glasses",
       "pubDeals",
-      "sessions"
+      "sessions",
+      "pubCrawls"
     ];
     for (const colType of keys) {
       const list = collections[colType];
@@ -1516,6 +1538,45 @@ var CentralDatabaseClient = class {
       }
     }
     this.memorySystemSettings.set(key, value);
+  }
+  async sharePubCrawlWithFriend(senderUserId, friendId, rawPubCrawl) {
+    await this.init();
+    if (!isValidServerId(senderUserId) || !isValidServerId(friendId)) {
+      return { success: false, message: "Ongeldige gebruiker of vriend." };
+    }
+    const sender = await this.getUserById(senderUserId);
+    const friend = await this.getUserById(friendId);
+    if (!friend) {
+      return { success: false, message: "Vriend niet gevonden." };
+    }
+    const senderName = sender?.name || "Een biervriend";
+    const crawlId = sanitizeServerId(
+      `crawl_shared_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      "crawl"
+    );
+    const payloadWithMeta = {
+      ...rawPubCrawl,
+      id: crawlId,
+      userId: friend.id,
+      sharedBy: senderName,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const saved = await this.insertRecordIfNotExists(
+      friend.id,
+      "pubCrawls",
+      crawlId,
+      payloadWithMeta,
+      false
+    );
+    if (!saved) {
+      return { success: false, message: "Kroegentocht kon niet worden opgeslagen bij je vriend." };
+    }
+    const sanitized = sanitizeCollectionRecord("pubCrawls", crawlId, friend.id, payloadWithMeta);
+    return {
+      success: true,
+      message: `Kroegentocht gedeeld met ${friend.name}!`,
+      sharedCrawl: sanitized || payloadWithMeta
+    };
   }
 };
 function sanitizeCollectionRecord(collectionType, id, userId, raw) {
@@ -1620,6 +1681,41 @@ function sanitizeCollectionRecord(collectionType, id, userId, raw) {
         glassSizeCl: sanitizeServerNumber(raw.glassSizeCl, 5, 200, 30),
         abv: sanitizeServerNumber(raw.abv, 0, 100, 5),
         pricePerGlass: sanitizeServerNumber(raw.pricePerGlass, 0, 1e3, 3.5)
+      };
+    }
+    case "pubCrawls": {
+      const title = sanitizeServerString(raw.title, 140, "Kroegentocht");
+      const city = sanitizeServerString(raw.city, 100, "Stad");
+      const rawStops = Array.isArray(raw.stops) ? raw.stops : [];
+      const stops = rawStops.slice(0, 20).map((s, idx) => {
+        if (!s || typeof s !== "object") return null;
+        const stopObj = s;
+        const pubName = sanitizeServerString(stopObj.pubName, 140);
+        if (!pubName) return null;
+        return {
+          id: sanitizeServerId(stopObj.id, `stop_${idx + 1}`),
+          pubName,
+          address: sanitizeServerString(stopObj.address, 200),
+          city: sanitizeServerString(stopObj.city, 100, city),
+          specialty: sanitizeServerString(stopObj.specialty, 250),
+          recommendedBeer: sanitizeServerString(stopObj.recommendedBeer, 140),
+          notes: sanitizeServerString(stopObj.notes, 400),
+          ...typeof stopObj.lat === "number" && Number.isFinite(stopObj.lat) ? { lat: sanitizeServerNumber(stopObj.lat, -90, 90, 52.0907) } : {},
+          ...typeof stopObj.lng === "number" && Number.isFinite(stopObj.lng) ? { lng: sanitizeServerNumber(stopObj.lng, -180, 180, 5.1214) } : {}
+        };
+      }).filter(Boolean);
+      if (stops.length === 0) return null;
+      return {
+        id,
+        userId,
+        title,
+        city,
+        description: sanitizeServerString(raw.description, 500),
+        stops,
+        createdBy: sanitizeServerString(raw.createdBy, 100),
+        ...raw.sharedBy ? { sharedBy: sanitizeServerString(raw.sharedBy, 100) } : {},
+        createdAt: sanitizeServerString(raw.createdAt, 40, nowIso),
+        ...raw.updatedAt ? { updatedAt: sanitizeServerString(raw.updatedAt, 40) } : {}
       };
     }
     default:
@@ -2139,7 +2235,8 @@ async function startServer() {
           tastings: Array.isArray(body.tastings) ? body.tastings : void 0,
           glasses: Array.isArray(body.glasses) ? body.glasses : void 0,
           pubDeals: Array.isArray(body.pubDeals) ? body.pubDeals : void 0,
-          sessions: Array.isArray(body.sessions) ? body.sessions : void 0
+          sessions: Array.isArray(body.sessions) ? body.sessions : void 0,
+          pubCrawls: Array.isArray(body.pubCrawls) ? body.pubCrawls : void 0
         },
         syncMeta
       );
@@ -2286,6 +2383,140 @@ async function startServer() {
       });
     } catch {
       res.status(500).json({ error: "Kon vrienden-collectie niet ophalen." });
+    }
+  });
+  app.post("/api/pub-crawls/share", requireAuth, async (req, res) => {
+    try {
+      const authUser = req.authUser;
+      const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      const effectiveUid = profile?.id || authUser.uid;
+      const { friendId, pubCrawl } = req.body || {};
+      if (!friendId || !pubCrawl || typeof pubCrawl !== "object") {
+        res.status(400).json({ error: "Kies een vriend en een geldige kroegentocht om te delen." });
+        return;
+      }
+      const result = await centralDb.sharePubCrawlWithFriend(effectiveUid, friendId, pubCrawl);
+      if (!result.success) {
+        res.status(400).json({ error: result.message });
+        return;
+      }
+      res.json({
+        ok: true,
+        message: result.message,
+        sharedCrawl: result.sharedCrawl
+      });
+    } catch {
+      res.status(500).json({ error: "Kon kroegentocht niet delen met je vriend." });
+    }
+  });
+  app.post("/api/pub-crawls/generate", async (req, res) => {
+    try {
+      const body = req.body || {};
+      const rawCity = sanitizeServerString(body.city, 80).trim();
+      if (!rawCity) {
+        res.status(400).json({ error: "Vul een stad of dorp in." });
+        return;
+      }
+      const stopCount = Math.min(8, Math.max(2, Number(body.stopCount) || 4));
+      const theme = sanitizeServerString(body.theme, 60, "mix");
+      let centerLat;
+      let centerLng;
+      let resolvedPlaceName = rawCity;
+      try {
+        const nomRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+            `${rawCity}, Nederland`
+          )}&limit=1`,
+          {
+            headers: {
+              "User-Agent": "Cervisium-KroegentochtPlanner/1.0 (https://cervisium.nl)",
+              Accept: "application/json"
+            },
+            signal: AbortSignal.timeout(4500)
+          }
+        );
+        if (nomRes.ok) {
+          const nomData = await nomRes.json();
+          if (Array.isArray(nomData) && nomData.length > 0) {
+            const first = nomData[0];
+            const parsedLat = Number(first.lat);
+            const parsedLng = Number(first.lon);
+            if (Number.isFinite(parsedLat) && Number.isFinite(parsedLng)) {
+              centerLat = parsedLat;
+              centerLng = parsedLng;
+            }
+            if (first.display_name) {
+              const firstPart = first.display_name.split(",")[0]?.trim();
+              if (firstPart) resolvedPlaceName = firstPart;
+            }
+          }
+        }
+      } catch {
+      }
+      const osmPubs = [];
+      if (centerLat !== void 0 && centerLng !== void 0) {
+        try {
+          const overpassQuery = `[out:json][timeout:5];(node["amenity"~"pub|bar|cafe|biergarten"](around:2500,${centerLat},${centerLng});way["amenity"~"pub|bar|cafe|biergarten"](around:2500,${centerLat},${centerLng});node["craft"="brewery"](around:3500,${centerLat},${centerLng}););out center 45;`;
+          const ovRes = await fetch("https://overpass-api.de/api/interpreter", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: `data=${encodeURIComponent(overpassQuery)}`,
+            signal: AbortSignal.timeout(5500)
+          });
+          if (ovRes.ok) {
+            const ovData = await ovRes.json();
+            const seenNames = /* @__PURE__ */ new Set();
+            for (const el of ovData.elements || []) {
+              const tags = el.tags || {};
+              const name = (tags.name || "").trim();
+              if (!name || name.length < 2) continue;
+              const lowerName = name.toLowerCase();
+              if (/starbucks|bagels|bakker|lunchroom|ijssalon|koffie|coffee|douwe egberts|hema|la place|mcdonald|burger king|kfc|subway|domino/i.test(
+                lowerName
+              )) {
+                continue;
+              }
+              if (seenNames.has(lowerName)) continue;
+              seenNames.add(lowerName);
+              const street = tags["addr:street"] || "";
+              const houseNumber = tags["addr:housenumber"] || "";
+              const address = street && houseNumber ? `${street} ${houseNumber}, ${resolvedPlaceName}` : street ? `${street}, ${resolvedPlaceName}` : `Centrum, ${resolvedPlaceName}`;
+              const lat = el.lat ?? el.center?.lat;
+              const lng = el.lon ?? el.center?.lon;
+              const isBrewery = tags.craft === "brewery" || tags.microbrewery === "yes" || /brouwerij|proeflokaal|biercaf|stadsbrouwerij|brewpub/i.test(lowerName);
+              const isPub = tags.amenity === "pub" || tags.amenity === "bar" || /kroeg|café|cafe|taverne|tapperij|herberg|borrel|pub|bar/i.test(lowerName);
+              let score = isPub ? 20 : 10;
+              if (isBrewery) score += 25;
+              if (theme === "speciaalbier" && isBrewery) score += 20;
+              if (theme === "bruin" && /bruin|oud|herberg|taverne|stam|café|cafe/i.test(lowerName)) {
+                score += 15;
+              }
+              if (street) score += 5;
+              const specialty = isBrewery ? "Lokaal proeflokaal & vers gebrouwen speciaalbieren van de tap" : tags.amenity === "pub" || /bier/i.test(lowerName) ? "Gezellig biercaf\xE9 met uitgebreide wisseltaps en flesbieren" : "Sfeervolle kroeg op loopafstand in het hart van de plaats";
+              const recommendedBeer = isBrewery ? "Huisgebrouwen Speciaalbier van de tap" : theme === "bruin" ? "Klassieke Belgische Tripel of Dubbel" : "Wisselende Speciaalbier Tap van het moment";
+              osmPubs.push({
+                pubName: name,
+                address,
+                specialty,
+                recommendedBeer,
+                lat,
+                lng,
+                score
+              });
+            }
+          }
+        } catch {
+        }
+      }
+      osmPubs.sort((a, b) => b.score - a.score);
+      res.json({
+        city: resolvedPlaceName,
+        centerLat,
+        centerLng,
+        osmPubs: osmPubs.slice(0, Math.max(stopCount * 2, 12))
+      });
+    } catch {
+      res.status(500).json({ error: "Kon kroegentocht niet genereren." });
     }
   });
   app.get("/api/system/settings", async (_req, res) => {

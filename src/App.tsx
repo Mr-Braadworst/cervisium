@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { UserAccount, FriendUser, Category, Beer, Tasting, BeerGlass, PubGlassDeal, UserSettings } from './types';
+import { UserAccount, FriendUser, Category, Beer, Tasting, BeerGlass, PubGlassDeal, UserSettings, PubCrawl, ActivePubCrawlState } from './types';
 import { FriendsView } from './components/FriendsView';
 import { fetchFriendRecords, acceptFriendInvite, fetchFriendsList } from './services/friendsService';
+import {
+  loadPubCrawlsForUser,
+  savePubCrawlsForUser,
+  loadActivePubCrawl,
+  saveActivePubCrawl,
+  syncPubCrawlsToServer,
+  deletePubCrawlFromServer,
+  decodePubCrawlShareParam,
+} from './services/pubCrawlService';
 import confetti from 'canvas-confetti';
 import {
   getActiveUser,
@@ -92,7 +101,7 @@ import { isSuperAdmin, AdminUserSummary } from './services/adminService';
 import { setLanguagePreference } from './utils/i18n';
 import { getCanonicalUserIdForEmail } from './utils/security';
 import { useAppVersion } from './version';
-import { Eye, ShieldCheck, ArrowLeft, Users, UserPlus, CheckCircle2, X } from 'lucide-react';
+import { Eye, ShieldCheck, ArrowLeft, Users, UserPlus, CheckCircle2, X, Compass, MapPin, Plus } from 'lucide-react';
 
 function isClientFirestoreEnabled(): boolean {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
@@ -118,6 +127,14 @@ export default function App() {
     activeUser ? getGlasses(activeUser.id) : []
   );
   const [pubDeals, setPubDeals] = useState<PubGlassDeal[]>(() => getStoredPubDeals());
+  const [savedPubCrawls, setSavedPubCrawls] = useState<PubCrawl[]>(() =>
+    activeUser ? loadPubCrawlsForUser(activeUser.id) : []
+  );
+  const [activePubCrawl, setActivePubCrawl] = useState<ActivePubCrawlState | null>(() =>
+    activeUser ? loadActivePubCrawl(activeUser.id) : null
+  );
+  const [friendsList, setFriendsList] = useState<FriendUser[]>([]);
+  const [beerModalInitialLocation, setBeerModalInitialLocation] = useState<string>('');
   const { appVersion, versionDate } = useAppVersion();
 
   // Navigation tab (starts on the user's configured defaultStartTab)
@@ -243,6 +260,7 @@ export default function App() {
       if (cancelled || document.visibilityState === 'hidden') return;
       const list = await fetchFriendsList();
       if (cancelled || !Array.isArray(list)) return;
+      setFriendsList(list);
 
       const now = Date.now();
       const map = { ...notifiedFriendsRef.current };
@@ -314,9 +332,30 @@ export default function App() {
         } catch {}
       }
     }
+
+    const sharedCrawlParam = params.get('crawl');
+    if (sharedCrawlParam) {
+      const decoded = decodePubCrawlShareParam(sharedCrawlParam);
+      if (decoded) {
+        if (activeUser) {
+          const currentCrawls = loadPubCrawlsForUser(activeUser.id);
+          const nextCrawls = [decoded, ...currentCrawls.filter((c) => c.id !== decoded.id)];
+          savePubCrawlsForUser(activeUser.id, nextCrawls);
+          setSavedPubCrawls(nextCrawls);
+          void syncPubCrawlsToServer(nextCrawls);
+          setFriendNotice(`🍻 Kroegentocht "${decoded.title}" (${decoded.city}) is toegevoegd aan jouw kroegentochten!`);
+          setActiveTab('extras');
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } else {
+          try {
+            localStorage.setItem('bierlog_pending_crawl', sharedCrawlParam);
+          } catch {}
+        }
+      }
+    }
   }, [activeUser, triggerFriendAddedToast]);
 
-  // Verwerk bewaarde uitnodiging nadat gebruiker is ingelogd
+  // Verwerk bewaarde uitnodiging of gedeelde kroegentocht nadat gebruiker is ingelogd
   useEffect(() => {
     if (!activeUser) return;
     try {
@@ -334,6 +373,20 @@ export default function App() {
           }
         });
       }
+      const pendingCrawl = localStorage.getItem('bierlog_pending_crawl');
+      if (pendingCrawl) {
+        localStorage.removeItem('bierlog_pending_crawl');
+        const decoded = decodePubCrawlShareParam(pendingCrawl);
+        if (decoded) {
+          const currentCrawls = loadPubCrawlsForUser(activeUser.id);
+          const nextCrawls = [decoded, ...currentCrawls.filter((c) => c.id !== decoded.id)];
+          savePubCrawlsForUser(activeUser.id, nextCrawls);
+          setSavedPubCrawls(nextCrawls);
+          void syncPubCrawlsToServer(nextCrawls);
+          setFriendNotice(`🍻 Kroegentocht "${decoded.title}" (${decoded.city}) is opgeslagen!`);
+          setActiveTab('extras');
+        }
+      }
     } catch {}
   }, [activeUser, triggerFriendAddedToast]);
 
@@ -344,12 +397,86 @@ export default function App() {
     const userTastings = getTastings(user.id);
     const userGlasses = getGlasses(user.id);
     const loadedSettings = getUserSettings(user.id);
+    const loadedCrawls = loadPubCrawlsForUser(user.id);
+    const loadedActiveCrawl = loadActivePubCrawl(user.id);
     setCategories(cats);
     setBeers(userBeers);
     setTastings(userTastings);
     setGlasses(userGlasses);
     setUserSettings(loadedSettings);
+    setSavedPubCrawls(loadedCrawls);
+    setActivePubCrawl(loadedActiveCrawl);
   }, []);
+
+  const handleSavePubCrawl = useCallback(
+    (crawl: PubCrawl) => {
+      if (!activeUser) return;
+      setSavedPubCrawls((prev) => {
+        const exists = prev.some((c) => c.id === crawl.id);
+        const next = exists
+          ? prev.map((c) => (c.id === crawl.id ? { ...crawl, userId: activeUser.id } : c))
+          : [{ ...crawl, userId: activeUser.id }, ...prev];
+        savePubCrawlsForUser(activeUser.id, next);
+        void syncPubCrawlsToServer(next);
+        return next;
+      });
+    },
+    [activeUser]
+  );
+
+  const handleDeletePubCrawl = useCallback(
+    (crawlId: string) => {
+      if (!activeUser) return;
+      setSavedPubCrawls((prev) => {
+        const next = prev.filter((c) => c.id !== crawlId);
+        savePubCrawlsForUser(activeUser.id, next);
+        void deletePubCrawlFromServer(crawlId);
+        return next;
+      });
+      setActivePubCrawl((prev) => {
+        if (prev?.pubCrawl.id === crawlId) {
+          saveActivePubCrawl(activeUser.id, null);
+          return null;
+        }
+        return prev;
+      });
+    },
+    [activeUser]
+  );
+
+  const handleStartPubCrawl = useCallback(
+    (crawl: PubCrawl) => {
+      if (!activeUser) return;
+      const nextState: ActivePubCrawlState = {
+        pubCrawl: crawl,
+        currentStopIndex: 0,
+        visitedStopIds: [],
+        startedAt: new Date().toISOString(),
+      };
+      setActivePubCrawl(nextState);
+      saveActivePubCrawl(activeUser.id, nextState);
+    },
+    [activeUser]
+  );
+
+  const handleUpdateActivePubCrawl = useCallback(
+    (next: ActivePubCrawlState | null) => {
+      if (!activeUser) return;
+      setActivePubCrawl(next);
+      saveActivePubCrawl(activeUser.id, next);
+    },
+    [activeUser]
+  );
+
+  const handleQuickAddBeerAtLocation = useCallback(
+    (locationName: string) => {
+      if (viewingFriend) return;
+      setEditingBeer(null);
+      setBeerModalInitialLocation(locationName);
+      setBeerModalOpen(true);
+    },
+    [viewingFriend]
+  );
 
   // Pas Licht Modus (White Thema) direct toe op het document
   useEffect(() => {
@@ -855,13 +982,53 @@ export default function App() {
         console.warn('Firestore beer create fallback:', e);
       }
     }
+    if (tastingData.location && activePubCrawl) {
+      const cleanLoc = tastingData.location.trim().toLowerCase();
+      const matchedIdx = activePubCrawl.pubCrawl.stops.findIndex(
+        (st) =>
+          cleanLoc.includes(st.pubName.trim().toLowerCase()) ||
+          `${st.pubName}, ${activePubCrawl.pubCrawl.city}`.toLowerCase() === cleanLoc
+      );
+      if (matchedIdx !== -1) {
+        const stopId = activePubCrawl.pubCrawl.stops[matchedIdx].id;
+        const nextVisited = activePubCrawl.visitedStopIds.includes(stopId)
+          ? activePubCrawl.visitedStopIds
+          : [...activePubCrawl.visitedStopIds, stopId];
+        handleUpdateActivePubCrawl({
+          ...activePubCrawl,
+          currentStopIndex: matchedIdx,
+          visitedStopIds: nextVisited,
+        });
+      }
+    }
     setEditingBeer(null);
+    setBeerModalInitialLocation('');
   };
 
   const handleAddTasting = async (beerId: string, tastingData: Omit<Tasting, 'id' | 'beerId'>) => {
     if (!activeUser || viewingFriend) return;
     const createdTasting = addTastingLocal(activeUser.id, { beerId, ...tastingData });
     setTastings((prev) => [...prev, createdTasting]);
+
+    if (tastingData.location && activePubCrawl) {
+      const cleanLoc = tastingData.location.trim().toLowerCase();
+      const matchedIdx = activePubCrawl.pubCrawl.stops.findIndex(
+        (st) =>
+          cleanLoc.includes(st.pubName.trim().toLowerCase()) ||
+          `${st.pubName}, ${activePubCrawl.pubCrawl.city}`.toLowerCase() === cleanLoc
+      );
+      if (matchedIdx !== -1) {
+        const stopId = activePubCrawl.pubCrawl.stops[matchedIdx].id;
+        const nextVisited = activePubCrawl.visitedStopIds.includes(stopId)
+          ? activePubCrawl.visitedStopIds
+          : [...activePubCrawl.visitedStopIds, stopId];
+        handleUpdateActivePubCrawl({
+          ...activePubCrawl,
+          currentStopIndex: matchedIdx,
+          visitedStopIds: nextVisited,
+        });
+      }
+    }
 
     try {
       await addTastingFirestore(activeUser.id, { beerId, ...tastingData }, createdTasting.id);
@@ -1317,6 +1484,7 @@ export default function App() {
         onAddNewBeer={() => {
           if (viewingFriend) return;
           setEditingBeer(null);
+          setBeerModalInitialLocation('');
           setBeerModalOpen(true);
         }}
         onLogout={handleLogout}
@@ -1332,6 +1500,57 @@ export default function App() {
         settings={userSettings}
         readOnly={Boolean(viewingFriend)}
       />
+
+      {/* Actieve Kroegentocht Snelbalk (zichtbaar op alle schermen zodra een kroegentocht gestart is) */}
+      {activePubCrawl && !viewingFriend && (
+        <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-zinc-900 border-b border-amber-500/40 px-4 py-2.5 shadow-md">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 text-xs sm:text-sm text-amber-200 min-w-0">
+              <Compass className="w-4 h-4 text-amber-400 shrink-0 animate-spin" style={{ animationDuration: '10s' }} />
+              <div className="truncate">
+                <span className="font-extrabold text-amber-300">
+                  Actieve Kroegentocht ({activePubCrawl.pubCrawl.city}):
+                </span>{' '}
+                {activePubCrawl.pubCrawl.stops[activePubCrawl.currentStopIndex] ? (
+                  <span>
+                    Stop {activePubCrawl.currentStopIndex + 1}/{activePubCrawl.pubCrawl.stops.length} &bull;{' '}
+                    <strong className="text-white">
+                      {activePubCrawl.pubCrawl.stops[activePubCrawl.currentStopIndex].pubName}
+                    </strong>
+                  </span>
+                ) : (
+                  <span>{activePubCrawl.pubCrawl.title}</span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {activePubCrawl.pubCrawl.stops[activePubCrawl.currentStopIndex] && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleQuickAddBeerAtLocation(
+                      `${activePubCrawl.pubCrawl.stops[activePubCrawl.currentStopIndex].pubName}, ${activePubCrawl.pubCrawl.city}`
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-extrabold text-xs shadow-sm transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Bier aanmelden bij {activePubCrawl.pubCrawl.stops[activePubCrawl.currentStopIndex].pubName}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('extras')}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 text-xs font-bold transition-colors cursor-pointer"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                Bekijk Route
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
@@ -1436,6 +1655,15 @@ export default function App() {
             onDeleteDeal={handleDeletePubDeal}
             initialTool={activeTab === 'deals' ? 'deals' : activeTab === 'counter' ? 'counter' : 'overview'}
             settings={userSettings}
+            savedPubCrawls={savedPubCrawls}
+            activePubCrawl={activePubCrawl}
+            friends={friendsList}
+            tastings={tastings}
+            onSavePubCrawl={handleSavePubCrawl}
+            onDeletePubCrawl={handleDeletePubCrawl}
+            onStartPubCrawl={handleStartPubCrawl}
+            onUpdateActivePubCrawl={handleUpdateActivePubCrawl}
+            onQuickAddBeerAtLocation={handleQuickAddBeerAtLocation}
           />
         )}
 
@@ -1529,6 +1757,7 @@ export default function App() {
         onClose={() => {
           setBeerModalOpen(false);
           setEditingBeer(null);
+          setBeerModalInitialLocation('');
         }}
         onSave={handleSaveBeer}
         categories={categories}
@@ -1536,6 +1765,9 @@ export default function App() {
         tastings={tastings}
         glasses={glasses}
         onAddCategory={handleAddCategory}
+        activePubCrawl={activePubCrawl}
+        savedPubCrawls={savedPubCrawls}
+        initialLocation={beerModalInitialLocation}
         onSelectExistingBeer={(beer, draft) => {
           setBeerModalOpen(false);
           setEditingBeer(null);
@@ -1600,6 +1832,8 @@ export default function App() {
               .filter((l): l is string => Boolean(l))
           )
         )}
+        activePubCrawl={activePubCrawl}
+        savedPubCrawls={savedPubCrawls}
         onClose={() => {
           setTastingBeer(null);
           setEditingTasting(null);

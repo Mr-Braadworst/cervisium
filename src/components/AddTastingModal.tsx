@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Beer, Tasting } from '../types';
-import { X, Star, MapPin, Calendar, PlusCircle, CheckCircle, Edit3, Camera, Image as ImageIcon } from 'lucide-react';
+import { ActivePubCrawlState, Beer, PubCrawl, Tasting } from '../types';
+import { X, Star, MapPin, Calendar, PlusCircle, CheckCircle, Edit3, Camera, Image as ImageIcon, Compass } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { getScoreLabel, getScoreColorClass } from './RatingBadge';
 import { DatePickerInput } from './DatePickerInput';
@@ -18,6 +18,8 @@ interface AddTastingModalProps {
   initialTasting?: Tasting;
   prefillDraft?: Partial<Tasting>;
   allLocations?: string[];
+  activePubCrawl?: ActivePubCrawlState | null;
+  savedPubCrawls?: PubCrawl[];
 }
 
 const LOCATION_SUGGESTIONS = [
@@ -41,6 +43,8 @@ export const AddTastingModal: React.FC<AddTastingModalProps> = ({
   initialTasting,
   prefillDraft,
   allLocations = [],
+  activePubCrawl,
+  savedPubCrawls = [],
 }) => {
   const [rating, setRating] = useState<number>(initialTasting?.rating || prefillDraft?.rating || 8.0);
   const [location, setLocation] = useState(initialTasting?.location || prefillDraft?.location || '');
@@ -80,7 +84,13 @@ export const AddTastingModal: React.FC<AddTastingModalProps> = ({
         setDate(prefillDraft.date ? prefillDraft.date.split('T')[0] : new Date().toISOString().split('T')[0]);
       } else {
         setRating(8.0);
-        setLocation('');
+        const currentActiveStop =
+          activePubCrawl?.pubCrawl?.stops?.[activePubCrawl.currentStopIndex] ||
+          activePubCrawl?.pubCrawl?.stops?.[0];
+        const defaultCrawlLoc = currentActiveStop
+          ? `${currentActiveStop.pubName}, ${activePubCrawl?.pubCrawl.city}`
+          : '';
+        setLocation(defaultCrawlLoc);
         setServingType(undefined);
         setNotes('');
         setPhotoUrl(undefined);
@@ -88,10 +98,20 @@ export const AddTastingModal: React.FC<AddTastingModalProps> = ({
       }
       setError(null);
     }
-  }, [isOpen, initialTasting, prefillDraft]);
+  }, [isOpen, initialTasting, prefillDraft, activePubCrawl]);
+
+  const crawlLocations = [
+    ...(activePubCrawl?.pubCrawl?.stops?.map(
+      (st) => `${st.pubName}, ${activePubCrawl.pubCrawl.city}`
+    ) || []),
+    ...savedPubCrawls.flatMap((c) =>
+      (c.stops || []).map((st) => `${st.pubName}, ${c.city}`)
+    ),
+  ];
 
   const combinedLocationSuggestions = Array.from(
     new Set([
+      ...crawlLocations,
       ...allLocations.map((l) => l.trim()).filter(Boolean),
       ...LOCATION_SUGGESTIONS,
     ])
@@ -366,6 +386,43 @@ export const AddTastingModal: React.FC<AddTastingModalProps> = ({
 
           {/* Location */}
           <div>
+            {activePubCrawl && activePubCrawl.pubCrawl.stops.length > 0 && (
+              <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+                    <Compass className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    Actieve Kroegentocht ({activePubCrawl.pubCrawl.city}) — Kies je kroeg:
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {activePubCrawl.pubCrawl.stops.map((st, idx) => {
+                    const stopLoc = `${st.pubName}, ${activePubCrawl.pubCrawl.city}`;
+                    const isSelected =
+                      location.trim().toLowerCase() === stopLoc.toLowerCase() ||
+                      location.trim().toLowerCase() === st.pubName.toLowerCase();
+                    const isCurrent = idx === activePubCrawl.currentStopIndex;
+                    return (
+                      <button
+                        type="button"
+                        key={st.id || idx}
+                        onClick={() => setLocation(stopLoc)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 cursor-pointer ${
+                          isSelected
+                            ? 'bg-amber-500 text-zinc-950 border-amber-400 font-bold shadow-sm'
+                            : isCurrent
+                            ? 'bg-amber-500/20 text-amber-200 border-amber-400/60 hover:bg-amber-500/30'
+                            : 'bg-zinc-900/90 text-zinc-300 border-zinc-700 hover:border-amber-500/40 hover:text-white'
+                        }`}
+                      >
+                        <span className="text-[10px] opacity-75">{idx + 1}.</span>
+                        <span>{st.pubName}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <label className="block text-xs font-semibold text-zinc-300 mb-1 flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-amber-400" />
               Waar heb je 'm gedronken? <span className="text-zinc-500 font-normal">(locatie)</span>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Beer, Category, Tasting, BeerGlass } from '../types';
-import { X, Star, Beer as BeerIcon, Plus, Heart, MapPin, ArrowRight, CheckCircle2, History, Building2, ChevronDown, Camera, Image as ImageIcon } from 'lucide-react';
+import { ActivePubCrawlState, Beer, Category, PubCrawl, Tasting, BeerGlass } from '../types';
+import { X, Star, Beer as BeerIcon, Plus, Heart, MapPin, ArrowRight, CheckCircle2, History, Building2, ChevronDown, Camera, Image as ImageIcon, Compass } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { getScoreLabel, getScoreColorClass } from './RatingBadge';
 import { DatePickerInput } from './DatePickerInput';
@@ -50,6 +50,9 @@ interface BeerModalProps {
   glasses?: BeerGlass[];
   onSelectExistingBeer?: (beer: Beer, prefillDraft?: Partial<Tasting>) => void;
   onAddCategory?: (name: string, color?: string, description?: string) => Promise<Category>;
+  activePubCrawl?: ActivePubCrawlState | null;
+  savedPubCrawls?: PubCrawl[];
+  initialLocation?: string;
 }
 
 export const BeerModal: React.FC<BeerModalProps> = ({
@@ -65,6 +68,9 @@ export const BeerModal: React.FC<BeerModalProps> = ({
   glasses = [],
   onSelectExistingBeer,
   onAddCategory,
+  activePubCrawl,
+  savedPubCrawls = [],
+  initialLocation,
 }) => {
   const [name, setName] = useState('');
   const [brewery, setBrewery] = useState('');
@@ -160,13 +166,33 @@ export const BeerModal: React.FC<BeerModalProps> = ({
     );
     const lowerSet = new Set(userLocs.map((l) => l.label.toLowerCase()));
     const combined = [...userLocs];
+
+    // Voeg kroegen uit de actieve of opgeslagen kroegentochten bovenaan de suggesties toe
+    const crawlStopsToSuggest: string[] = [];
+    if (activePubCrawl?.pubCrawl?.stops) {
+      for (const st of activePubCrawl.pubCrawl.stops) {
+        crawlStopsToSuggest.push(`${st.pubName}, ${activePubCrawl.pubCrawl.city}`);
+      }
+    }
+    for (const c of savedPubCrawls) {
+      for (const st of c.stops || []) {
+        crawlStopsToSuggest.push(`${st.pubName}, ${c.city}`);
+      }
+    }
+    for (const locLabel of crawlStopsToSuggest) {
+      if (!lowerSet.has(locLabel.toLowerCase())) {
+        lowerSet.add(locLabel.toLowerCase());
+        combined.unshift({ label: locLabel, count: 1, latest: Date.now(), isFromHistory: true });
+      }
+    }
+
     for (const def of DEFAULT_LOCATION_SUGGESTIONS) {
       if (!lowerSet.has(def.toLowerCase())) {
         combined.push({ label: def, count: 0, latest: 0, isFromHistory: false });
       }
     }
     return combined;
-  }, [tastings]);
+  }, [tastings, activePubCrawl, savedPubCrawls]);
 
   const matchingNameBeers = useMemo(() => {
     const q = name.trim().toLowerCase();
@@ -243,7 +269,13 @@ export const BeerModal: React.FC<BeerModalProps> = ({
       setCategoryId('');
       setAbv(0);
       setRating(8.0);
-      setLocation('');
+      const currentActiveStop =
+        activePubCrawl?.pubCrawl?.stops?.[activePubCrawl.currentStopIndex] ||
+        activePubCrawl?.pubCrawl?.stops?.[0];
+      const defaultCrawlLoc = currentActiveStop
+        ? `${currentActiveStop.pubName}, ${activePubCrawl?.pubCrawl.city}`
+        : '';
+      setLocation(initialLocation || defaultCrawlLoc || '');
       setServingType(undefined);
       setNotes('');
       setFavorite(false);
@@ -255,7 +287,7 @@ export const BeerModal: React.FC<BeerModalProps> = ({
     setShowBrewerySuggestions(false);
     setShowLocationSuggestions(false);
     setError(null);
-  }, [initialBeer?.id, initialTasting?.id, isOpen]);
+  }, [initialBeer?.id, initialTasting?.id, isOpen, initialLocation, activePubCrawl]);
 
   if (!isOpen) return null;
 
@@ -838,6 +870,43 @@ export const BeerModal: React.FC<BeerModalProps> = ({
 
           {/* 3. Location where tasted */}
           <div className="relative">
+            {activePubCrawl && activePubCrawl.pubCrawl.stops.length > 0 && (
+              <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+                    <Compass className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    Actieve Kroegentocht ({activePubCrawl.pubCrawl.city}) — Kies je kroeg:
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {activePubCrawl.pubCrawl.stops.map((st, idx) => {
+                    const stopLoc = `${st.pubName}, ${activePubCrawl.pubCrawl.city}`;
+                    const isSelected =
+                      location.trim().toLowerCase() === stopLoc.toLowerCase() ||
+                      location.trim().toLowerCase() === st.pubName.toLowerCase();
+                    const isCurrent = idx === activePubCrawl.currentStopIndex;
+                    return (
+                      <button
+                        type="button"
+                        key={st.id || idx}
+                        onClick={() => setLocation(stopLoc)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 cursor-pointer ${
+                          isSelected
+                            ? 'bg-amber-500 text-zinc-950 border-amber-400 font-bold shadow-sm'
+                            : isCurrent
+                            ? 'bg-amber-500/20 text-amber-200 border-amber-400/60 hover:bg-amber-500/30'
+                            : 'bg-zinc-900/90 text-zinc-300 border-zinc-700 hover:border-amber-500/40 hover:text-white'
+                        }`}
+                      >
+                        <span className="text-[10px] opacity-75">{idx + 1}.</span>
+                        <span>{st.pubName}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-amber-400" />

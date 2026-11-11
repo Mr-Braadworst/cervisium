@@ -19,6 +19,7 @@ const ALLOWED_COLLECTION_TYPES = new Set([
   'glasses',
   'pubDeals',
   'sessions',
+  'pubCrawls',
 ]);
 
 export interface DbUserRecord {
@@ -98,6 +99,7 @@ class CentralDatabaseClient {
       glasses: Map<string, Record<string, unknown>>;
       pubDeals: Map<string, Record<string, unknown>>;
       sessions: Map<string, Record<string, unknown>>;
+      pubCrawls: Map<string, Record<string, unknown>>;
     }
   >();
   private memoryFriends = new Map<string, Set<string>>();
@@ -342,13 +344,14 @@ class CentralDatabaseClient {
     const sourceBucket = this.memoryCollections.get(sourceUid);
     const targetBucket = this.ensureMemoryBucket(targetUid);
     if (sourceBucket) {
-      const cols: Array<'categories' | 'beers' | 'tastings' | 'glasses' | 'pubDeals' | 'sessions'> = [
+      const cols: Array<'categories' | 'beers' | 'tastings' | 'glasses' | 'pubDeals' | 'sessions' | 'pubCrawls'> = [
         'categories',
         'beers',
         'tastings',
         'glasses',
         'pubDeals',
         'sessions',
+        'pubCrawls',
       ];
       for (const col of cols) {
         sourceBucket[col].forEach((val, key) => {
@@ -421,6 +424,7 @@ class CentralDatabaseClient {
         glasses: new Map(),
         pubDeals: new Map(),
         sessions: new Map(),
+        pubCrawls: new Map(),
       });
     }
     return this.memoryCollections.get(userId)!;
@@ -714,7 +718,7 @@ class CentralDatabaseClient {
   public async getUserRecords(userId: string) {
     await this.init();
     if (!isValidServerId(userId)) {
-      return { categories: [], beers: [], tastings: [], glasses: [], pubDeals: [], sessions: [] };
+      return { categories: [], beers: [], tastings: [], glasses: [], pubDeals: [], sessions: [], pubCrawls: [] };
     }
     await this.repairCrossAccountContamination();
 
@@ -743,6 +747,7 @@ class CentralDatabaseClient {
         glasses: [],
         pubDeals: [],
         sessions: [],
+        pubCrawls: [],
       };
       for (const row of res.rows) {
         if (grouped[row.collection_type]) {
@@ -760,6 +765,7 @@ class CentralDatabaseClient {
       glasses: Array.from(bucket.glasses.values()),
       pubDeals: Array.from(bucket.pubDeals.values()),
       sessions: Array.from(bucket.sessions.values()),
+      pubCrawls: Array.from(bucket.pubCrawls.values()),
     };
   }
 
@@ -774,20 +780,40 @@ class CentralDatabaseClient {
       return { success: false, message: 'Ongeldige gebruiker.' };
     }
 
-    const cleanTarget = (targetIdentifier || '').trim().toLowerCase();
-    if (!cleanTarget) {
-      return { success: false, message: 'Geen uitnodigingscode of vriend opgegeven.' };
+    const rawTarget = (targetIdentifier || '').trim();
+    if (!rawTarget) {
+      return { success: false, message: 'Geen uitnodigingscode opgegeven.' };
     }
 
-    let friendProfile: DbUserRecord | null = null;
-    if (cleanTarget.includes('@')) {
-      friendProfile = await this.getUserByEmail(cleanTarget);
-    } else {
-      const canonicalTarget = getCanonicalUserIdForEmail(cleanTarget) || cleanTarget;
-      friendProfile = await this.getUserById(canonicalTarget);
-      if (!friendProfile && isValidServerId(cleanTarget)) {
-        friendProfile = await this.getUserById(cleanTarget);
+    if (rawTarget.includes('@')) {
+      return {
+        success: false,
+        message:
+          'Vrienden toevoegen via e-mailadres is niet mogelijk. Gebruik een persoonlijke uitnodigingslink of scan de QR-code.',
+      };
+    }
+
+    let extractedTarget = rawTarget;
+    try {
+      if (rawTarget.startsWith('http://') || rawTarget.startsWith('https://')) {
+        const parsedUrl = new URL(rawTarget);
+        const paramCode = parsedUrl.searchParams.get('invite') || parsedUrl.searchParams.get('friend');
+        if (paramCode) extractedTarget = paramCode.trim();
       }
+    } catch {
+      // ignore URL parse error
+    }
+
+    if (extractedTarget.includes('@') || !isValidServerId(extractedTarget)) {
+      return {
+        success: false,
+        message: 'Ongeldige uitnodigingscode. Gebruik een geldige uitnodigingslink of QR-code.',
+      };
+    }
+
+    let friendProfile: DbUserRecord | null = await this.getUserById(extractedTarget);
+    if (!friendProfile) {
+      friendProfile = await this.getUserById(extractedTarget.toLowerCase());
     }
 
     if (!friendProfile) {
@@ -1150,7 +1176,7 @@ class CentralDatabaseClient {
 
   public async insertRecordIfNotExists(
     userId: string,
-    collectionType: 'categories' | 'beers' | 'tastings' | 'glasses' | 'pubDeals' | 'sessions',
+    collectionType: 'categories' | 'beers' | 'tastings' | 'glasses' | 'pubDeals' | 'sessions' | 'pubCrawls',
     recordId: string,
     payload: Record<string, unknown>,
     skipDuplicates = true
@@ -1244,7 +1270,8 @@ class CentralDatabaseClient {
       | 'tastings'
       | 'glasses'
       | 'pubDeals'
-      | 'sessions';
+      | 'sessions'
+      | 'pubCrawls';
     bucket[colKey].delete(recordId);
     if (colKey === 'beers') {
       bucket.tastings.forEach((t, tid) => {
@@ -1269,6 +1296,7 @@ class CentralDatabaseClient {
     bucket.tastings.clear();
     bucket.glasses.clear();
     bucket.sessions.clear();
+    bucket.pubCrawls.clear();
     return true;
   }
 
@@ -1285,6 +1313,7 @@ class CentralDatabaseClient {
       glasses?: unknown[];
       pubDeals?: unknown[];
       sessions?: unknown[];
+      pubCrawls?: unknown[];
     },
     userMeta?: {
       email?: string;
@@ -1305,13 +1334,14 @@ class CentralDatabaseClient {
     });
     const effectiveUserId = upsertedUser.id;
 
-    const keys: Array<'categories' | 'beers' | 'tastings' | 'glasses' | 'pubDeals' | 'sessions'> = [
+    const keys: Array<'categories' | 'beers' | 'tastings' | 'glasses' | 'pubDeals' | 'sessions' | 'pubCrawls'> = [
       'categories',
       'beers',
       'tastings',
       'glasses',
       'pubDeals',
       'sessions',
+      'pubCrawls',
     ];
 
     for (const colType of keys) {
@@ -1357,6 +1387,54 @@ class CentralDatabaseClient {
       }
     }
     this.memorySystemSettings.set(key, value);
+  }
+
+  public async sharePubCrawlWithFriend(
+    senderUserId: string,
+    friendId: string,
+    rawPubCrawl: Record<string, unknown>
+  ): Promise<{ success: boolean; message: string; sharedCrawl?: Record<string, unknown> }> {
+    await this.init();
+    if (!isValidServerId(senderUserId) || !isValidServerId(friendId)) {
+      return { success: false, message: 'Ongeldige gebruiker of vriend.' };
+    }
+
+    const sender = await this.getUserById(senderUserId);
+    const friend = await this.getUserById(friendId);
+    if (!friend) {
+      return { success: false, message: 'Vriend niet gevonden.' };
+    }
+
+    const senderName = sender?.name || 'Een biervriend';
+    const crawlId = sanitizeServerId(
+      `crawl_shared_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      'crawl'
+    );
+    const payloadWithMeta: Record<string, unknown> = {
+      ...rawPubCrawl,
+      id: crawlId,
+      userId: friend.id,
+      sharedBy: senderName,
+      createdAt: new Date().toISOString(),
+    };
+
+    const saved = await this.insertRecordIfNotExists(
+      friend.id,
+      'pubCrawls',
+      crawlId,
+      payloadWithMeta,
+      false
+    );
+    if (!saved) {
+      return { success: false, message: 'Kroegentocht kon niet worden opgeslagen bij je vriend.' };
+    }
+
+    const sanitized = sanitizeCollectionRecord('pubCrawls', crawlId, friend.id, payloadWithMeta);
+    return {
+      success: true,
+      message: `Kroegentocht gedeeld met ${friend.name}!`,
+      sharedCrawl: sanitized || payloadWithMeta,
+    };
   }
 }
 
@@ -1481,6 +1559,48 @@ function sanitizeCollectionRecord(
         glassSizeCl: sanitizeServerNumber(raw.glassSizeCl, 5, 200, 30),
         abv: sanitizeServerNumber(raw.abv, 0, 100, 5),
         pricePerGlass: sanitizeServerNumber(raw.pricePerGlass, 0, 1000, 3.5),
+      };
+    }
+    case 'pubCrawls': {
+      const title = sanitizeServerString(raw.title, 140, 'Kroegentocht');
+      const city = sanitizeServerString(raw.city, 100, 'Stad');
+      const rawStops = Array.isArray(raw.stops) ? raw.stops : [];
+      const stops = rawStops
+        .slice(0, 20)
+        .map((s, idx) => {
+          if (!s || typeof s !== 'object') return null;
+          const stopObj = s as Record<string, unknown>;
+          const pubName = sanitizeServerString(stopObj.pubName, 140);
+          if (!pubName) return null;
+          return {
+            id: sanitizeServerId(stopObj.id, `stop_${idx + 1}`),
+            pubName,
+            address: sanitizeServerString(stopObj.address, 200),
+            city: sanitizeServerString(stopObj.city, 100, city),
+            specialty: sanitizeServerString(stopObj.specialty, 250),
+            recommendedBeer: sanitizeServerString(stopObj.recommendedBeer, 140),
+            notes: sanitizeServerString(stopObj.notes, 400),
+            ...(typeof stopObj.lat === 'number' && Number.isFinite(stopObj.lat)
+              ? { lat: sanitizeServerNumber(stopObj.lat, -90, 90, 52.0907) }
+              : {}),
+            ...(typeof stopObj.lng === 'number' && Number.isFinite(stopObj.lng)
+              ? { lng: sanitizeServerNumber(stopObj.lng, -180, 180, 5.1214) }
+              : {}),
+          };
+        })
+        .filter(Boolean);
+      if (stops.length === 0) return null;
+      return {
+        id,
+        userId,
+        title,
+        city,
+        description: sanitizeServerString(raw.description, 500),
+        stops,
+        createdBy: sanitizeServerString(raw.createdBy, 100),
+        ...(raw.sharedBy ? { sharedBy: sanitizeServerString(raw.sharedBy, 100) } : {}),
+        createdAt: sanitizeServerString(raw.createdAt, 40, nowIso),
+        ...(raw.updatedAt ? { updatedAt: sanitizeServerString(raw.updatedAt, 40) } : {}),
       };
     }
     default:

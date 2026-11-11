@@ -1357,6 +1357,7 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
           beers?: unknown[];
           tastings?: unknown[];
           glasses?: unknown[];
+          pubCrawls?: unknown[];
         };
       };
 
@@ -1383,6 +1384,27 @@ export async function syncUserWithServerDatabase(user: UserAccount): Promise<boo
       }
 
       if (data.records) {
+        if (Array.isArray(data.records.pubCrawls) && data.records.pubCrawls.length > 0) {
+          try {
+            const storageKey = `cervisium_pub_crawls_v1_${userId}`;
+            const existingRaw = localStorage.getItem(storageKey);
+            const existingList = existingRaw ? (JSON.parse(existingRaw) as Array<{ id: string }>) : [];
+            const mergedMap = new Map<string, unknown>();
+            for (const item of existingList) {
+              if (item && typeof item === 'object' && item.id) {
+                mergedMap.set(item.id, item);
+              }
+            }
+            for (const srvItem of data.records.pubCrawls) {
+              if (srvItem && typeof srvItem === 'object' && (srvItem as { id?: string }).id) {
+                mergedMap.set((srvItem as { id: string }).id, srvItem);
+              }
+            }
+            localStorage.setItem(storageKey, JSON.stringify(Array.from(mergedMap.values())));
+          } catch {
+            // ignore storage errors
+          }
+        }
         const serverCats = Array.isArray(data.records.categories)
           ? data.records.categories
               .map((c) => sanitizeImportedCategory(c))
