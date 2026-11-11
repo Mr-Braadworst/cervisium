@@ -30,6 +30,7 @@ interface BeerGlassesViewProps {
   onAddGlass: (glassData: Omit<BeerGlass, 'id' | 'userId' | 'dateAdded'> & { dateAdded?: string }) => void;
   onUpdateGlass: (glassId: string, updates: Partial<BeerGlass>) => void;
   onDeleteGlass: (glassId: string) => void;
+  readOnly?: boolean;
 }
 
 const GLASS_TYPES = [
@@ -47,6 +48,7 @@ export const BeerGlassesView: React.FC<BeerGlassesViewProps> = ({
   onAddGlass,
   onUpdateGlass,
   onDeleteGlass,
+  readOnly = false,
 }) => {
   const [selectedLightboxGlass, setSelectedLightboxGlass] = useState<BeerGlass | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -175,23 +177,27 @@ export const BeerGlassesView: React.FC<BeerGlassesViewProps> = ({
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold mb-2">
               <Sparkles className="w-3.5 h-3.5" />
-              Mijn Glazenkast
+              {readOnly ? 'Glazenkast' : 'Mijn Glazenkast'}
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-zinc-100 tracking-tight">
               Bierglazen Collectie
             </h1>
             <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
-              Houd bij welke speciaalbierglazen je in huis hebt, voeg een foto toe en geef direct aan hoeveel stuks je van elk glas hebt.
+              {readOnly
+                ? 'Overzicht van de speciaalbierglazen en aantallen in deze collectie.'
+                : 'Houd bij welke speciaalbierglazen je in huis hebt, voeg een foto toe en geef direct aan hoeveel stuks je van elk glas hebt.'}
             </p>
           </div>
 
-          <button
-            onClick={openNewModal}
-            className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all hover:scale-105 shrink-0"
-          >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            Bierglas Toevoegen
-          </button>
+          {!readOnly && (
+            <button
+              onClick={openNewModal}
+              className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all hover:scale-105 shrink-0"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              Bierglas Toevoegen
+            </button>
+          )}
         </div>
       </div>
 
@@ -311,14 +317,16 @@ export const BeerGlassesView: React.FC<BeerGlassesViewProps> = ({
             <Package className="w-7 h-7" />
           </div>
           <h3 className="text-base font-bold text-zinc-200">
-            {glasses.length === 0 ? 'Nog geen bierglazen in je collectie' : 'Geen bierglazen gevonden'}
+            {glasses.length === 0 ? 'Nog geen bierglazen in deze collectie' : 'Geen bierglazen gevonden'}
           </h3>
           <p className="text-xs text-zinc-400 max-w-md mx-auto">
             {glasses.length === 0
-              ? 'Voeg je eerste bierglas toe met een foto en geef aan hoeveel je er in de kast hebt staan!'
+              ? readOnly
+                ? 'Deze vriend heeft nog geen bierglazen aan zijn collectie toegevoegd.'
+                : 'Voeg je eerste bierglas toe met een foto en geef aan hoeveel je er in de kast hebt staan!'
               : 'Pas je zoekopdracht of filter aan om je glazen te zien.'}
           </p>
-          {glasses.length === 0 && (
+          {!readOnly && glasses.length === 0 && (
             <button
               onClick={openNewModal}
               className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all"
@@ -342,7 +350,7 @@ export const BeerGlassesView: React.FC<BeerGlassesViewProps> = ({
                     <div
                       onClick={() => setSelectedLightboxGlass(glass)}
                       className="w-full h-full relative cursor-pointer group/photo"
-                      title="Klik om in volledige grootte te zien of te positioneren"
+                      title={readOnly ? 'Klik om de foto in volledige grootte te bekijken' : 'Klik om in volledige grootte te zien of te positioneren'}
                     >
                       <img
                         src={glass.photoUrl}
@@ -376,17 +384,28 @@ export const BeerGlassesView: React.FC<BeerGlassesViewProps> = ({
                       <span />
                     )}
 
-                    <button
-                      onClick={() => onUpdateGlass(glass.id, { favorite: !glass.favorite })}
-                      className={`p-2 rounded-xl border backdrop-blur-sm transition-colors ${
-                        glass.favorite
-                          ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
-                          : 'bg-zinc-950/75 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                      }`}
-                      title="Favoriet"
-                    >
-                      <Heart className={`w-4 h-4 ${glass.favorite ? 'fill-rose-500 text-rose-500' : ''}`} />
-                    </button>
+                    {readOnly ? (
+                      glass.favorite ? (
+                        <span
+                          className="p-2 rounded-xl border bg-rose-500/20 text-rose-400 border-rose-500/40 backdrop-blur-sm"
+                          title="Favoriet glas"
+                        >
+                          <Heart className="w-4 h-4 fill-rose-500 text-rose-500" />
+                        </span>
+                      ) : null
+                    ) : (
+                      <button
+                        onClick={() => onUpdateGlass(glass.id, { favorite: !glass.favorite })}
+                        className={`p-2 rounded-xl border backdrop-blur-sm transition-colors ${
+                          glass.favorite
+                            ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                            : 'bg-zinc-950/75 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                        }`}
+                        title="Favoriet"
+                      >
+                        <Heart className={`w-4 h-4 ${glass.favorite ? 'fill-rose-500 text-rose-500' : ''}`} />
+                      </button>
+                    )}
                   </div>
 
                   {glass.volumeCl && (
@@ -437,55 +456,66 @@ export const BeerGlassesView: React.FC<BeerGlassesViewProps> = ({
 
               {/* Footer: Quantity Stepper & Actions */}
               <div className="px-4 sm:px-5 py-3.5 bg-zinc-950/60 border-t border-zinc-800/80 flex items-center justify-between gap-2">
-                {/* Direct Quantity Adjuster */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-zinc-400">Aantal:</span>
-                  <div className="inline-flex items-center gap-1.5 bg-zinc-900 border border-zinc-700/80 rounded-xl p-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateGlass(glass.id, { quantity: Math.max(0, (glass.quantity || 0) - 1) })
-                      }
-                      className="w-6 h-6 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center transition-colors"
-                      title="Eentje minder"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="px-2 text-xs font-extrabold text-amber-400 min-w-[2.5rem] text-center">
+                {readOnly ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-zinc-400">Aantal:</span>
+                    <span className="px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-extrabold text-amber-400">
                       {glass.quantity} {glass.quantity === 1 ? 'stuk' : 'stuks'}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateGlass(glass.id, { quantity: (glass.quantity || 0) + 1 })
-                      }
-                      className="w-6 h-6 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 flex items-center justify-center transition-colors"
-                      title="Eentje meer"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                    </button>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    {/* Direct Quantity Adjuster */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-zinc-400">Aantal:</span>
+                      <div className="inline-flex items-center gap-1.5 bg-zinc-900 border border-zinc-700/80 rounded-xl p-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateGlass(glass.id, { quantity: Math.max(0, (glass.quantity || 0) - 1) })
+                          }
+                          className="w-6 h-6 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center transition-colors"
+                          title="Eentje minder"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="px-2 text-xs font-extrabold text-amber-400 min-w-[2.5rem] text-center">
+                          {glass.quantity} {glass.quantity === 1 ? 'stuk' : 'stuks'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateGlass(glass.id, { quantity: (glass.quantity || 0) + 1 })
+                          }
+                          className="w-6 h-6 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 flex items-center justify-center transition-colors"
+                          title="Eentje meer"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                        </button>
+                      </div>
+                    </div>
 
-                {/* Edit / Delete */}
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => openEditModal(glass)}
-                    className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-zinc-900 transition-colors"
-                    title="Glas bewerken"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setGlassToDelete(glass)}
-                    className="p-2 rounded-xl text-zinc-400 hover:text-rose-400 hover:bg-zinc-900 transition-colors"
-                    title="Glas verwijderen"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                    {/* Edit / Delete */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(glass)}
+                        className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-zinc-900 transition-colors"
+                        title="Glas bewerken"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGlassToDelete(glass)}
+                        className="p-2 rounded-xl text-zinc-400 hover:text-rose-400 hover:bg-zinc-900 transition-colors"
+                        title="Glas verwijderen"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -767,17 +797,21 @@ export const BeerGlassesView: React.FC<BeerGlassesViewProps> = ({
           subtitle={selectedLightboxGlass.brand || selectedLightboxGlass.glassType}
           initialPosition={selectedLightboxGlass.photoPosition || '50% 50%'}
           initialZoom={selectedLightboxGlass.photoZoom || 1.0}
-          onSavePosition={(newPosition, newZoom, newPhotoUrl) => {
-            const updates = {
-              photoPosition: newPosition,
-              photoZoom: newZoom,
-              ...(newPhotoUrl ? { photoUrl: newPhotoUrl } : {}),
-            };
-            onUpdateGlass(selectedLightboxGlass.id, updates);
-            setSelectedLightboxGlass((prev) =>
-              prev ? { ...prev, ...updates } : null
-            );
-          }}
+          onSavePosition={
+            !readOnly
+              ? (newPosition, newZoom, newPhotoUrl) => {
+                  const updates = {
+                    photoPosition: newPosition,
+                    photoZoom: newZoom,
+                    ...(newPhotoUrl ? { photoUrl: newPhotoUrl } : {}),
+                  };
+                  onUpdateGlass(selectedLightboxGlass.id, updates);
+                  setSelectedLightboxGlass((prev) =>
+                    prev ? { ...prev, ...updates } : null
+                  );
+                }
+              : undefined
+          }
         />
       )}
 

@@ -98,7 +98,7 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              {!readOnly && (
+              {!readOnly ? (
                 <button
                   onClick={() => onToggleFavorite(beer)}
                   className={`p-2 rounded-xl border transition-colors ${
@@ -110,7 +110,14 @@ export const BeerDetailModal: React.FC<BeerDetailModalProps> = ({
                 >
                   <Heart className={`w-4 h-4 ${beer.favorite ? 'text-rose-500 fill-rose-500' : ''}`} />
                 </button>
-              )}
+              ) : beer.favorite ? (
+                <span
+                  className="p-2 rounded-xl border bg-rose-500/20 text-rose-300 border-rose-500/40"
+                  title="Favoriet bier"
+                >
+                  <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
+                </span>
+              ) : null}
               <button
                 onClick={onClose}
                 className="p-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"

@@ -20,6 +20,8 @@ import {
 
 interface DashboardViewProps {
   activeUser?: UserAccount;
+  viewingFriendUser?: { id: string; name: string; email: string; avatarUrl?: string };
+  readOnly?: boolean;
   beers: Beer[];
   tastings: Tasting[];
   categories: Category[];
@@ -30,6 +32,8 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   activeUser,
+  viewingFriendUser,
+  readOnly = false,
   beers,
   tastings,
   categories,
@@ -43,7 +47,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Key metrics calculation
   const stats = useMemo(() => {
-    const ownBeers = activeUser
+    const ownBeers = readOnly
+      ? beers
+      : activeUser
       ? beers.filter((b) => !b.userId || b.userId === activeUser.id)
       : beers;
 
@@ -149,39 +155,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Persoonlijke Begroeting met eigen Google-accountnaam of aangepaste naam uit de database */}
-      {activeUser && (
+      {/* Persoonlijke Begroeting met eigen Google-accountnaam of vriendcollectie */}
+      {(viewingFriendUser || activeUser) && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/80 border border-zinc-800 rounded-2xl px-5 py-4 shadow-md">
           <div className="flex items-center gap-3.5 min-w-0">
-            {activeUser.avatarUrl ? (
+            {(viewingFriendUser?.avatarUrl || (!readOnly && activeUser?.avatarUrl)) ? (
               <img
-                src={activeUser.avatarUrl}
-                alt={activeUser.name}
+                src={(viewingFriendUser?.avatarUrl || activeUser?.avatarUrl)!}
+                alt={viewingFriendUser?.name || activeUser?.name || ''}
                 className="w-11 h-11 rounded-2xl object-cover ring-2 ring-amber-500/40 shrink-0"
               />
             ) : (
               <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/30 text-amber-300 font-extrabold text-base flex items-center justify-center shrink-0">
-                {activeUser.name.charAt(0).toUpperCase()}
+                {(viewingFriendUser?.name || activeUser?.name || '?').charAt(0).toUpperCase()}
               </div>
             )}
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-extrabold text-zinc-100 tracking-tight truncate">
-                Welkom, <span className="text-amber-400">{activeUser.name}</span>
+                {readOnly && viewingFriendUser ? (
+                  <>
+                    Collectie van <span className="text-amber-400">{viewingFriendUser.name}</span>
+                  </>
+                ) : (
+                  <>
+                    Welkom, <span className="text-amber-400">{activeUser?.name}</span>
+                  </>
+                )}
               </h1>
               <p className="text-xs text-zinc-400 truncate">
-                Jouw persoonlijke biercollectie &amp; proefnotities
+                {readOnly
+                  ? 'Alleen-lezen overzicht van geproefde bieren & scores'
+                  : 'Jouw persoonlijke biercollectie & proefnotities'}
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onNavigateToTab('settings')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-amber-300 text-xs font-semibold transition-colors w-fit shrink-0"
-          >
-            <User className="w-3.5 h-3.5 text-amber-400" />
-            Naam aanpassen
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => onNavigateToTab('settings')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-amber-300 text-xs font-semibold transition-colors w-fit shrink-0"
+            >
+              <User className="w-3.5 h-3.5 text-amber-400" />
+              Naam aanpassen
+            </button>
+          )}
         </div>
       )}
 
@@ -438,7 +456,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 onClick={() => onNavigateToTab('categories')}
                 className="text-xs text-amber-400 hover:text-amber-300 font-medium"
               >
-                Beheer Categorieën &rarr;
+                {readOnly ? 'Bekijk Categorieën \u2192' : 'Beheer Categorieën \u2192'}
               </button>
             </div>
 

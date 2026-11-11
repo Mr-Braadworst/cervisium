@@ -31,11 +31,13 @@ import {
 interface FriendsViewProps {
   activeUser: UserAccount;
   onViewFriendList: (friend: FriendUser) => void;
+  onFriendAdded?: (friend: FriendUser, message?: string) => void;
 }
 
 export const FriendsView: React.FC<FriendsViewProps> = ({
   activeUser,
   onViewFriendList,
+  onFriendAdded,
 }) => {
   const [friends, setFriends] = useState<FriendUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +80,22 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
         }
       })
       .catch(() => {});
+
+    const handleFriendsUpdated = () => {
+      void loadFriends();
+      setShowQrModalOpen(false);
+    };
+    window.addEventListener('cervisium:friends-updated', handleFriendsUpdated);
+    return () => {
+      window.removeEventListener('cervisium:friends-updated', handleFriendsUpdated);
+    };
   }, [loadFriends]);
+
+  useEffect(() => {
+    if (!statusMessage) return;
+    const timer = setTimeout(() => setStatusMessage(null), 6000);
+    return () => clearTimeout(timer);
+  }, [statusMessage]);
 
   const inviteUrl = buildInviteLink(activeUser.id, customDomain);
 
@@ -99,6 +116,9 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     const res = await acceptFriendInvite(code);
     if (res.success) {
       setStatusMessage({ type: 'success', text: res.message });
+      if (res.friend) {
+        onFriendAdded?.(res.friend, `Je bent nu gekoppeld met ${res.friend.name}!`);
+      }
       setManualCode('');
       await loadFriends();
     } else {
@@ -141,6 +161,9 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     const res = await acceptFriendInvite(scannedCode);
     if (res.success) {
       setStatusMessage({ type: 'success', text: res.message });
+      if (res.friend) {
+        onFriendAdded?.(res.friend, `Je bent nu gekoppeld met ${res.friend.name}!`);
+      }
       setScanQrModalOpen(false);
       await loadFriends();
     } else {

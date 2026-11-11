@@ -15,6 +15,7 @@ interface BeerCardProps {
   onToggleFavorite: (beer: Beer) => void;
   onOpenAddTasting?: (beer: Beer) => void;
   rank?: number;
+  readOnly?: boolean;
 }
 
 export const BeerCard: React.FC<BeerCardProps> = ({
@@ -27,6 +28,7 @@ export const BeerCard: React.FC<BeerCardProps> = ({
   onToggleFavorite,
   onOpenAddTasting,
   rank,
+  readOnly = false,
 }) => {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false);
@@ -104,72 +106,85 @@ export const BeerCard: React.FC<BeerCardProps> = ({
             </span>
           </div>
           <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={() => onToggleFavorite(beer)}
-              aria-label={beer.favorite ? 'Verwijder uit favorieten' : 'Toevoegen aan favorieten'}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
-            >
-              <Heart
-                className={`w-4 h-4 transition-colors ${
-                  beer.favorite ? 'text-rose-500 fill-rose-500' : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              />
-            </button>
-            <div className="relative" ref={menuRef}>
-              <button
-                onClick={() => setMenuOpen(!menuOpen)}
-                aria-label="Opties"
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 top-full mt-1 w-44 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-xl py-1 z-20">
-                  {onOpenAddTasting && (
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onOpenAddTasting(beer);
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-amber-300 hover:bg-zinc-800"
-                    >
-                      <PlusCircle className="w-3.5 h-3.5 text-amber-400" />
-                      Nogmaals drinken
-                    </button>
+            {readOnly ? (
+              beer.favorite ? (
+                <span
+                  className="p-1.5 rounded-lg text-rose-500"
+                  title="Favoriet bier"
+                >
+                  <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
+                </span>
+              ) : null
+            ) : (
+              <>
+                <button
+                  onClick={() => onToggleFavorite(beer)}
+                  aria-label={beer.favorite ? 'Verwijder uit favorieten' : 'Toevoegen aan favorieten'}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
+                >
+                  <Heart
+                    className={`w-4 h-4 transition-colors ${
+                      beer.favorite ? 'text-rose-500 fill-rose-500' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  />
+                </button>
+                <div className="relative" ref={menuRef}>
+                  <button
+                    onClick={() => setMenuOpen(!menuOpen)}
+                    aria-label="Opties"
+                    className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                  {menuOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-44 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-xl py-1 z-20">
+                      {onOpenAddTasting && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            onOpenAddTasting(beer);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-amber-300 hover:bg-zinc-800"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5 text-amber-400" />
+                          Nogmaals drinken
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onSelect(beer);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-zinc-400" />
+                        Details &amp; Geschiedenis
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onEdit(beer);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-amber-400"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                        Bewerken
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setConfirmDeleteOpen(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-400 hover:bg-zinc-800"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Verwijderen
+                      </button>
+                    </div>
                   )}
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onSelect(beer);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white"
-                  >
-                    <Eye className="w-3.5 h-3.5 text-zinc-400" />
-                    Details &amp; Geschiedenis
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onEdit(beer);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-amber-400"
-                  >
-                    <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                    Bewerken
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setConfirmDeleteOpen(true);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-400 hover:bg-zinc-800"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Verwijderen
-                  </button>
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -240,7 +255,7 @@ export const BeerCard: React.FC<BeerCardProps> = ({
       <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between gap-2">
         <RatingBadge rating={avgRating} size="md" showLabel />
         <div className="flex items-center gap-2">
-          {onOpenAddTasting && (
+          {!readOnly && onOpenAddTasting && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -260,13 +275,15 @@ export const BeerCard: React.FC<BeerCardProps> = ({
         </div>
       </div>
 
-      <ConfirmModal
-        isOpen={confirmDeleteOpen}
-        title="Biertje verwijderen?"
-        message={`Weet je zeker dat je "${beer.name}" en alle bijbehorende proefnotities definitief wilt verwijderen? Dit kan niet ongedaan worden gemaakt.`}
-        onConfirm={() => onDelete(beer.id)}
-        onCancel={() => setConfirmDeleteOpen(false)}
-      />
+      {!readOnly && (
+        <ConfirmModal
+          isOpen={confirmDeleteOpen}
+          title="Biertje verwijderen?"
+          message={`Weet je zeker dat je "${beer.name}" en alle bijbehorende proefnotities definitief wilt verwijderen? Dit kan niet ongedaan worden gemaakt.`}
+          onConfirm={() => onDelete(beer.id)}
+          onCancel={() => setConfirmDeleteOpen(false)}
+        />
+      )}
     </div>
   );
 };

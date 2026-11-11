@@ -11,6 +11,7 @@ interface TopRankingsViewProps {
   onToggleFavorite: (beer: Beer) => void;
   onAddNewBeer: () => void;
   onOpenAddTasting?: (beer: Beer) => void;
+  readOnly?: boolean;
 }
 
 export const TopRankingsView: React.FC<TopRankingsViewProps> = ({
@@ -20,6 +21,7 @@ export const TopRankingsView: React.FC<TopRankingsViewProps> = ({
   onSelectBeer,
   onAddNewBeer,
   onOpenAddTasting,
+  readOnly = false,
 }) => {
   const [minRating, setMinRating] = useState<number>(0);
   const [selectedCatId, setSelectedCatId] = useState<string>('all');
@@ -260,14 +262,18 @@ export const TopRankingsView: React.FC<TopRankingsViewProps> = ({
           <Trophy className="w-12 h-12 text-zinc-600 mx-auto mb-3" />
           <h3 className="text-base font-bold text-zinc-200 mb-1">Geen bieren in het klassement</h3>
           <p className="text-xs text-zinc-400 max-w-sm mx-auto mb-5">
-            Voeg bieren toe en geef ze een cijfer om je persoonlijke toplijst samen te stellen.
+            {readOnly
+              ? 'Deze vriend heeft nog geen beoordeelde bieren in het klassement.'
+              : 'Voeg bieren toe en geef ze een cijfer om je persoonlijke toplijst samen te stellen.'}
           </p>
-          <button
-            onClick={onAddNewBeer}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950"
-          >
-            + Bier Toevoegen
-          </button>
+          {!readOnly && (
+            <button
+              onClick={onAddNewBeer}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950"
+            >
+              + Bier Toevoegen
+            </button>
+          )}
         </div>
       ) : (
         <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
@@ -345,7 +351,7 @@ export const TopRankingsView: React.FC<TopRankingsViewProps> = ({
                         &ldquo;{item.latestTasting.notes}&rdquo;
                       </span>
                     )}
-                    {onOpenAddTasting && (
+                    {!readOnly && onOpenAddTasting && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

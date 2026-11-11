@@ -28,6 +28,7 @@ interface BeerListViewProps {
   onOpenCategories: () => void;
   onOpenAddTasting?: (beer: Beer) => void;
   initialSearchQuery?: string;
+  readOnly?: boolean;
 }
 
 type SortKey = 'rating_desc' | 'rating_asc' | 'name_asc' | 'name_desc' | 'brewery_asc' | 'brewery_desc' | 'date_desc' | 'date_asc' | 'abv_desc';
@@ -57,6 +58,7 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
   onOpenCategories,
   onOpenAddTasting,
   initialSearchQuery = '',
+  readOnly = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
@@ -314,13 +316,15 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
             );
           })}
 
-          <button
-            onClick={onOpenCategories}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-zinc-400 hover:text-amber-400 bg-zinc-950/40 border border-dashed border-zinc-700 text-xs whitespace-nowrap transition-colors"
-          >
-            <Tag className="w-3 h-3 text-amber-500" />
-            + Beheer Categorieën
-          </button>
+          {!readOnly && (
+            <button
+              onClick={onOpenCategories}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-zinc-400 hover:text-amber-400 bg-zinc-950/40 border border-dashed border-zinc-700 text-xs whitespace-nowrap transition-colors"
+            >
+              <Tag className="w-3 h-3 text-amber-500" />
+              + Beheer Categorieën
+            </button>
+          )}
         </div>
       </div>
 
@@ -360,6 +364,8 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
           <p className="text-xs text-zinc-400 max-w-sm mx-auto mb-5 leading-relaxed">
             {searchQuery || onlyFavorites || selectedCategoryId !== 'all'
               ? 'Probeer een andere zoekterm of selecteer een andere categorie.'
+              : readOnly
+              ? 'Deze vriend heeft nog geen geproefde bieren aan zijn collectie toegevoegd.'
               : 'Begin met het vastleggen van jouw geproefde bieren en geef ze een cijfer van 1 tot 10.'}
           </p>
 
@@ -375,7 +381,7 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
               >
                 Filters wissen
               </button>
-            ) : (
+            ) : !readOnly ? (
               <button
                 onClick={onAddNewBeer}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-md shadow-amber-500/20 transition-all"
@@ -383,7 +389,7 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
                 <Plus className="w-4 h-4" />
                 Voeg Je Eerste Bier Toe
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       ) : viewMode === 'grid' ? (
@@ -399,6 +405,7 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
               onDelete={onDeleteBeer}
               onToggleFavorite={onToggleFavorite}
               onOpenAddTasting={onOpenAddTasting}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -414,7 +421,9 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
                   <th className="py-3.5 px-4 font-semibold">ABV %</th>
                   <th className="py-3.5 px-4 font-semibold">Score</th>
                   <th className="py-3.5 px-4 font-semibold hidden md:table-cell">Geproefd</th>
-                  <th className="py-3.5 px-4 font-semibold text-right">Acties</th>
+                  {!readOnly && (
+                    <th className="py-3.5 px-4 font-semibold text-right">Acties</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/60 text-zinc-200">
@@ -428,19 +437,27 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
                     >
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onToggleFavorite(beer);
-                            }}
-                            className="p-1 rounded text-zinc-500 hover:text-rose-400"
-                          >
-                            <Heart
-                              className={`w-3.5 h-3.5 ${
-                                beer.favorite ? 'text-rose-500 fill-rose-500' : ''
-                              }`}
-                            />
-                          </button>
+                          {readOnly ? (
+                            beer.favorite ? (
+                              <span className="p-1 text-rose-500" title="Favoriet">
+                                <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+                              </span>
+                            ) : null
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleFavorite(beer);
+                              }}
+                              className="p-1 rounded text-zinc-500 hover:text-rose-400"
+                            >
+                              <Heart
+                                className={`w-3.5 h-3.5 ${
+                                  beer.favorite ? 'text-rose-500 fill-rose-500' : ''
+                                }`}
+                              />
+                            </button>
+                          )}
                           <div>
                             <div className="font-bold text-zinc-100 hover:text-amber-400">
                               {beer.name}
@@ -476,28 +493,30 @@ export const BeerListView: React.FC<BeerListViewProps> = ({
                       <td className="py-3.5 px-4 text-zinc-400 hidden md:table-cell whitespace-nowrap">
                         {new Date(getBeerTastingDate(beer)).toLocaleDateString('nl-NL')}
                       </td>
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        {onOpenAddTasting && (
+                      {!readOnly && (
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          {onOpenAddTasting && (
+                            <button
+                              onClick={() => onOpenAddTasting(beer)}
+                              className="px-2.5 py-1 text-xs font-bold bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-zinc-950 rounded-lg mr-2 transition-colors border border-amber-500/30"
+                            >
+                              + Inchecken
+                            </button>
+                          )}
                           <button
-                            onClick={() => onOpenAddTasting(beer)}
-                            className="px-2.5 py-1 text-xs font-bold bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-zinc-950 rounded-lg mr-2 transition-colors border border-amber-500/30"
+                            onClick={() => onEditBeer(beer)}
+                            className="px-2 py-1 text-xs text-amber-400 hover:underline mr-2"
                           >
-                            + Inchecken
+                            Bewerken
                           </button>
-                        )}
-                        <button
-                          onClick={() => onEditBeer(beer)}
-                          className="px-2 py-1 text-xs text-amber-400 hover:underline mr-2"
-                        >
-                          Bewerken
-                        </button>
-                        <button
-                          onClick={() => onDeleteBeer(beer.id)}
-                          className="px-2 py-1 text-xs text-rose-400 hover:underline"
-                        >
-                          Verwijderen
-                        </button>
-                      </td>
+                          <button
+                            onClick={() => onDeleteBeer(beer.id)}
+                            className="px-2 py-1 text-xs text-rose-400 hover:underline"
+                          >
+                            Verwijderen
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

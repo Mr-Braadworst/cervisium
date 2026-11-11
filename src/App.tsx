@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { UserAccount, FriendUser, Category, Beer, Tasting, BeerGlass, PubGlassDeal, UserSettings } from './types';
 import { FriendsView } from './components/FriendsView';
-import { fetchFriendRecords, acceptFriendInvite } from './services/friendsService';
+import { fetchFriendRecords, acceptFriendInvite, fetchFriendsList } from './services/friendsService';
+import confetti from 'canvas-confetti';
 import {
   getActiveUser,
   setActiveUser as persistActiveUser,
@@ -91,7 +92,7 @@ import { isSuperAdmin, AdminUserSummary } from './services/adminService';
 import { setLanguagePreference } from './utils/i18n';
 import { getCanonicalUserIdForEmail } from './utils/security';
 import { useAppVersion } from './version';
-import { Eye, ShieldCheck, ArrowLeft, Users } from 'lucide-react';
+import { Eye, ShieldCheck, ArrowLeft, Users, UserPlus, CheckCircle2, X } from 'lucide-react';
 
 function isClientFirestoreEnabled(): boolean {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
@@ -142,8 +143,149 @@ export default function App() {
     glasses: BeerGlass[];
   } | null>(null);
   const [friendNotice, setFriendNotice] = useState<string | null>(null);
+  const [friendAddedToast, setFriendAddedToast] = useState<{
+    friendId: string;
+    friendName: string;
+    friendEmail?: string;
+    friendAvatar?: string;
+    message: string;
+  } | null>(null);
+  const notifiedFriendsRef = useRef<Record<string, number>>({});
   const [showLoginScreen, setShowLoginScreen] = useState<boolean>(false);
   const [loginInitialMode, setLoginInitialMode] = useState<'login' | 'register'>('login');
+
+  const triggerFriendAddedToast = useCallback(
+    (
+      friend: { id: string; name: string; email?: string; avatarUrl?: string; connectedAt?: string },
+      customMessage?: string
+    ) => {
+      if (!friend?.id || !friend?.name) return;
+      const now = Date.now();
+      const connectedTs = friend.connectedAt ? new Date(friend.connectedAt).getTime() : now;
+      const effectiveTs = Number.isFinite(connectedTs) ? Math.max(now, connectedTs) : now;
+
+      notifiedFriendsRef.current[friend.id] = effectiveTs;
+      if (activeUser?.id) {
+        try {
+          const storageKey = `bierlog_notified_friends_${activeUser.id}`;
+          const existingRaw = localStorage.getItem(storageKey);
+          const existingMap = existingRaw ? (JSON.parse(existingRaw) as Record<string, number>) : {};
+          existingMap[friend.id] = effectiveTs;
+          localStorage.setItem(storageKey, JSON.stringify(existingMap));
+        } catch {}
+      }
+
+      setFriendAddedToast({
+        friendId: friend.id,
+        friendName: friend.name,
+        friendEmail: friend.email,
+        friendAvatar: friend.avatarUrl,
+        message: customMessage || `Je bent nu gekoppeld met ${friend.name}!`,
+      });
+
+      try {
+        confetti({
+          particleCount: 50,
+          spread: 65,
+          origin: { y: 0.18 },
+        });
+      } catch {}
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cervisium:friends-updated', { detail: { friend } }));
+      }
+    },
+    [activeUser?.id]
+  );
+
+  // Verberg de tijdelijke vriend-melding automatisch na 5,5 seconden
+  useEffect(() => {
+    if (!friendAddedToast) return;
+    const timer = setTimeout(() => {
+      setFriendAddedToast(null);
+    }, 5500);
+    return () => clearTimeout(timer);
+  }, [friendAddedToast]);
+
+  useEffect(() => {
+    if (!friendNotice) return;
+    const timer = setTimeout(() => {
+      setFriendNotice(null);
+    }, 5500);
+    return () => clearTimeout(timer);
+  }, [friendNotice]);
+
+  // Controleer op de achtergrond of de andere partij jou net als vriend heeft toegevoegd (bijv. via QR-scan of link)
+  useEffect(() => {
+    if (!activeUser?.id) return;
+    const userId = activeUser.id;
+    const storageKey = `bierlog_notified_friends_${userId}`;
+    let hasLoadedInitialBaseline = false;
+
+    try {
+      const savedRaw = localStorage.getItem(storageKey);
+      if (savedRaw) {
+        const parsed = JSON.parse(savedRaw) as Record<string, number>;
+        if (parsed && typeof parsed === 'object') {
+          notifiedFriendsRef.current = { ...parsed };
+          hasLoadedInitialBaseline = true;
+        }
+      } else {
+        notifiedFriendsRef.current = {};
+      }
+    } catch {
+      notifiedFriendsRef.current = {};
+    }
+
+    let cancelled = false;
+
+    const checkIncomingFriendships = async () => {
+      if (cancelled || document.visibilityState === 'hidden') return;
+      const list = await fetchFriendsList();
+      if (cancelled || !Array.isArray(list)) return;
+
+      const now = Date.now();
+      const map = { ...notifiedFriendsRef.current };
+      let mapUpdated = false;
+
+      for (const f of list) {
+        if (!f?.id) continue;
+        const connMs = f.connectedAt ? new Date(f.connectedAt).getTime() : 0;
+        const validConnMs = Number.isFinite(connMs) && connMs > 0 ? connMs : now;
+        const prevSeenMs = map[f.id] || 0;
+
+        const isRecentlyConnected = Math.abs(now - validConnMs) <= 45_000;
+        const isBrandNewAfterBaseline = hasLoadedInitialBaseline && !prevSeenMs;
+        const isReconnectedAfterSeen = prevSeenMs > 0 && validConnMs > prevSeenMs + 3000 && isRecentlyConnected;
+
+        if (isBrandNewAfterBaseline || isReconnectedAfterSeen || (!hasLoadedInitialBaseline && isRecentlyConnected && !prevSeenMs)) {
+          map[f.id] = Math.max(now, validConnMs);
+          mapUpdated = true;
+          triggerFriendAddedToast(f, `${f.name} heeft je toegevoegd als vriend!`);
+        } else if (!prevSeenMs) {
+          map[f.id] = validConnMs;
+          mapUpdated = true;
+        }
+      }
+
+      hasLoadedInitialBaseline = true;
+      if (mapUpdated) {
+        notifiedFriendsRef.current = map;
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(map));
+        } catch {}
+      }
+    };
+
+    void checkIncomingFriendships();
+    const intervalMs = activeTab === 'friends' ? 3000 : 6000;
+    const intervalId = setInterval(checkIncomingFriendships, intervalMs);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [activeUser?.id, activeTab, triggerFriendAddedToast]);
 
   // Verwerk inkomende uitnodigingslink in de URL (?invite=... of ?friend=...)
   useEffect(() => {
@@ -155,7 +297,11 @@ export default function App() {
       if (activeUser) {
         acceptFriendInvite(inviteCode).then((res) => {
           if (res.success) {
-            setFriendNotice(res.message);
+            if (res.friend) {
+              triggerFriendAddedToast(res.friend, `Je bent nu gekoppeld met ${res.friend.name}!`);
+            } else {
+              setFriendNotice(res.message);
+            }
             setActiveTab('friends');
           } else if (res.message) {
             setFriendNotice(res.message);
@@ -168,7 +314,7 @@ export default function App() {
         } catch {}
       }
     }
-  }, [activeUser]);
+  }, [activeUser, triggerFriendAddedToast]);
 
   // Verwerk bewaarde uitnodiging nadat gebruiker is ingelogd
   useEffect(() => {
@@ -179,13 +325,17 @@ export default function App() {
         localStorage.removeItem('bierlog_pending_invite');
         acceptFriendInvite(pending).then((res) => {
           if (res.success) {
-            setFriendNotice(res.message);
+            if (res.friend) {
+              triggerFriendAddedToast(res.friend, `Je bent nu gekoppeld met ${res.friend.name}!`);
+            } else {
+              setFriendNotice(res.message);
+            }
             setActiveTab('friends');
           }
         });
       }
     } catch {}
-  }, [activeUser]);
+  }, [activeUser, triggerFriendAddedToast]);
 
   // Sync state when active user changes
   const reloadDataForUser = useCallback((user: UserAccount) => {
@@ -1061,6 +1211,65 @@ export default function App() {
         </div>
       )}
 
+      {/* Tijdelijke popup-melding voor beide partijen wanneer een vriend is toegevoegd */}
+      {friendAddedToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[120] w-[calc(100%-2rem)] max-w-md pointer-events-auto animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className="bg-zinc-900/95 backdrop-blur-md border-2 border-emerald-500/50 rounded-2xl p-4 shadow-2xl shadow-emerald-950/60 flex items-center justify-between gap-3.5">
+            <div className="flex items-center gap-3 min-w-0">
+              {friendAddedToast.friendAvatar ? (
+                <img
+                  src={friendAddedToast.friendAvatar}
+                  alt={friendAddedToast.friendName}
+                  referrerPolicy="no-referrer"
+                  className="w-11 h-11 rounded-xl object-cover border border-emerald-500/40 shrink-0"
+                />
+              ) : (
+                <div className="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-extrabold text-base flex items-center justify-center shrink-0">
+                  {friendAddedToast.friendName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-400">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>Vriend gekoppeld! 🍻</span>
+                </div>
+                <p className="text-sm font-bold text-zinc-100 truncate mt-0.5">
+                  {friendAddedToast.message}
+                </p>
+                {friendAddedToast.friendEmail && (
+                  <p className="text-[11px] text-zinc-400 truncate">
+                    {friendAddedToast.friendEmail}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {activeTab !== 'friends' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('friends');
+                    setFriendAddedToast(null);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-extrabold transition-colors cursor-pointer"
+                >
+                  Bekijk
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setFriendAddedToast(null)}
+                aria-label="Melding sluiten"
+                className="p-1.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Meldingen banner voor vrienduitnodiging */}
       {friendNotice && (
         <div className="bg-amber-500/20 border-b border-amber-500/30 text-amber-200 px-4 py-2.5 flex items-center justify-between text-xs sm:text-sm">
@@ -1098,15 +1307,21 @@ export default function App() {
       {/* Navigation */}
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          if (tab === 'friends' || tab === 'extras' || tab === 'deals' || tab === 'counter' || tab === 'settings' || tab === 'admin') {
+            setViewingFriend(null);
+          }
+          setActiveTab(tab);
+        }}
         activeUser={activeUser}
         onAddNewBeer={() => {
+          if (viewingFriend) return;
           setEditingBeer(null);
           setBeerModalOpen(true);
         }}
         onLogout={handleLogout}
-        beerCount={beers.length}
-        glassCount={glasses.reduce((sum, g) => sum + (Number(g.quantity) || 0), 0)}
+        beerCount={displayBeers.length}
+        glassCount={displayGlasses.reduce((sum, g) => sum + (Number(g.quantity) || 0), 0)}
         activeDealCount={
           pubDeals.filter(
             (d) =>
@@ -1115,6 +1330,7 @@ export default function App() {
           ).length
         }
         settings={userSettings}
+        readOnly={Boolean(viewingFriend)}
       />
 
       {/* Main Content Container */}
@@ -1122,15 +1338,21 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardView
             activeUser={activeUser}
+            viewingFriendUser={viewingFriend?.friend}
+            readOnly={Boolean(viewingFriend)}
             beers={displayBeers}
             tastings={displayTastings}
             categories={displayCategories}
             onSelectBeer={(beer) => setSelectedBeer(beer)}
             onAddNewBeer={() => {
+              if (viewingFriend) return;
               setEditingBeer(null);
               setBeerModalOpen(true);
             }}
-            onNavigateToTab={(tab) => setActiveTab(tab)}
+            onNavigateToTab={(tab) => {
+              if (tab === 'settings') setViewingFriend(null);
+              setActiveTab(tab);
+            }}
           />
         )}
 
@@ -1153,6 +1375,7 @@ export default function App() {
               setBeerModalOpen(true);
             }}
             onOpenCategories={() => setActiveTab('categories')}
+            readOnly={Boolean(viewingFriend)}
           />
         )}
 
@@ -1168,6 +1391,7 @@ export default function App() {
               setEditingBeer(null);
               setBeerModalOpen(true);
             }}
+            readOnly={Boolean(viewingFriend)}
           />
         )}
 
@@ -1181,6 +1405,7 @@ export default function App() {
             onDeleteCategory={handleDeleteCategory}
             onLoadPresetSuggestions={handleLoadPresetSuggestions}
             onSelectBeer={(beer) => setSelectedBeer(beer)}
+            readOnly={Boolean(viewingFriend)}
           />
         )}
 
@@ -1190,6 +1415,7 @@ export default function App() {
             onAddGlass={handleAddGlass}
             onUpdateGlass={handleUpdateGlass}
             onDeleteGlass={handleDeleteGlass}
+            readOnly={Boolean(viewingFriend)}
           />
         )}
 
@@ -1197,6 +1423,7 @@ export default function App() {
           <FriendsView
             activeUser={activeUser}
             onViewFriendList={handleViewFriendList}
+            onFriendAdded={(friend, msg) => triggerFriendAddedToast(friend, msg)}
           />
         )}
 

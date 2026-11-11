@@ -101,6 +101,7 @@ class CentralDatabaseClient {
     }
   >();
   private memoryFriends = new Map<string, Set<string>>();
+  private memoryFriendTimestamps = new Map<string, string>();
   private memorySystemSettings = new Map<string, string>();
 
   public isPostgresConfigured(): boolean {
@@ -797,13 +798,15 @@ class CentralDatabaseClient {
       return { success: false, message: 'Je kunt jezelf niet als vriend toevoegen.' };
     }
 
+    const nowIso = new Date().toISOString();
+
     if (this.pool) {
       try {
         await this.pool.query(
           `
           INSERT INTO user_friends (user_id, friend_id, status, created_at)
           VALUES ($1, $2, 'accepted', NOW()), ($2, $1, 'accepted', NOW())
-          ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted';
+          ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted', created_at = NOW();
           `,
           [userId, friendProfile.id]
         );
@@ -816,6 +819,8 @@ class CentralDatabaseClient {
     if (!this.memoryFriends.has(friendProfile.id)) this.memoryFriends.set(friendProfile.id, new Set());
     this.memoryFriends.get(userId)!.add(friendProfile.id);
     this.memoryFriends.get(friendProfile.id)!.add(userId);
+    this.memoryFriendTimestamps.set(`${userId}:${friendProfile.id}`, nowIso);
+    this.memoryFriendTimestamps.set(`${friendProfile.id}:${userId}`, nowIso);
 
     return {
       success: true,
@@ -873,6 +878,8 @@ class CentralDatabaseClient {
       const fUser = await this.getUserById(fid);
       if (fUser) {
         const recs = await this.getUserRecords(fid);
+        const connectedAt =
+          this.memoryFriendTimestamps.get(`${userId}:${fid}`) || fUser.createdAt || new Date().toISOString();
         list.push({
           id: fUser.id,
           name: fUser.name,
@@ -880,7 +887,7 @@ class CentralDatabaseClient {
           avatarUrl: fUser.avatarUrl,
           beerCount: recs.beers.length,
           tastingCount: recs.tastings.length,
-          connectedAt: new Date().toISOString(),
+          connectedAt,
         });
       }
     }

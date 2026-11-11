@@ -26,6 +26,7 @@ interface CategoriesViewProps {
   onDeleteCategory: (id: string) => void;
   onLoadPresetSuggestions: () => void;
   onSelectBeer?: (beer: Beer) => void;
+  readOnly?: boolean;
 }
 
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
@@ -37,6 +38,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onDeleteCategory,
   onLoadPresetSuggestions,
   onSelectBeer,
+  readOnly = false,
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [newCatName, setNewCatName] = useState('');
@@ -110,37 +112,42 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Tag className="w-5 h-5 text-amber-400" />
-            <h2 className="text-xl font-bold text-zinc-100">Categoriebeheer</h2>
+            <h2 className="text-xl font-bold text-zinc-100">
+              {readOnly ? 'Bierstijlen & Categorieën' : 'Categoriebeheer'}
+            </h2>
           </div>
           <p className="text-xs sm:text-sm text-zinc-400 max-w-xl">
-            Jij bepaalt welke bierstijlen je bijhoudt (bijv. IPA, Tripel, Blond, Stout, Geuze).
-            Klik op een categorie om deze naar voren te halen en de gekoppelde bieren te bekijken.
+            {readOnly
+              ? 'Klik op een categorie om deze naar voren te halen en de gekoppelde bieren te bekijken.'
+              : 'Jij bepaalt welke bierstijlen je bijhoudt (bijv. IPA, Tripel, Blond, Stout, Geuze). Klik op een categorie om deze naar voren te halen en de gekoppelde bieren te bekijken.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          {categories.length === 0 && (
-            <button
-              onClick={onLoadPresetSuggestions}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 transition-colors"
-            >
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              Laad bierstijl suggesties
-            </button>
-          )}
+        {!readOnly && (
+          <div className="flex items-center gap-2.5">
+            {categories.length === 0 && (
+              <button
+                onClick={onLoadPresetSuggestions}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 transition-colors"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                Laad bierstijl suggesties
+              </button>
+            )}
 
-          <button
-            onClick={handleStartCreate}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            Nieuwe Categorie
-          </button>
-        </div>
+            <button
+              onClick={handleStartCreate}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              Nieuwe Categorie
+            </button>
+          </div>
+        )}
       </div>
 
       {/* New Category Form Modal / Banner */}
-      {isCreating && (
+      {!readOnly && isCreating && (
         <form
           onSubmit={handleSaveNew}
           className="bg-zinc-900 border border-amber-500/40 rounded-2xl p-5 shadow-xl space-y-4"
@@ -226,30 +233,33 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
           <Tag className="w-12 h-12 text-zinc-600 mx-auto mb-3" />
           <h3 className="text-base font-bold text-zinc-200 mb-1">Nog geen categorieën aangemaakt</h3>
           <p className="text-xs text-zinc-400 max-w-md mx-auto mb-5 leading-relaxed">
-            Jij hebt de regie. Er zijn standaard geen vaste categorieën ingesteld.
-            Maak jouw eigen bierstijlen aan of laad met één klik een paar klassieke voorbeelden.
+            {readOnly
+              ? 'Deze vriend heeft nog geen bierstijlen of categorieën aangemaakt.'
+              : 'Jij hebt de regie. Er zijn standaard geen vaste categorieën ingesteld. Maak jouw eigen bierstijlen aan of laad met één klik een paar klassieke voorbeelden.'}
           </p>
-          <div className="flex items-center justify-center gap-3">
-            <button
-              onClick={handleStartCreate}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors"
-            >
-              + Eerste Categorie Aanmaken
-            </button>
-            <button
-              onClick={onLoadPresetSuggestions}
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors"
-            >
-              Laad Klassieke Stijlen (IPA, Tripel, Stout, Blond)
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={handleStartCreate}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors"
+              >
+                + Eerste Categorie Aanmaken
+              </button>
+              <button
+                onClick={onLoadPresetSuggestions}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors"
+              >
+                Laad Klassieke Stijlen (IPA, Tripel, Stout, Blond)
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         /* Categories Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {categories.map((cat) => {
             const { count, avgScore } = getCategoryStats(cat.id);
-            const isEditing = editingId === cat.id;
+            const isEditing = !readOnly && editingId === cat.id;
 
             if (isEditing) {
               return (
@@ -324,25 +334,27 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       </h3>
                     </div>
 
-                    <div
-                      className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={() => handleStartEdit(cat)}
-                        className="p-1 rounded-md text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-colors"
-                        title="Bewerken"
+                    {!readOnly && (
+                      <div
+                        className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirmId(cat.id)}
-                        className="p-1 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
-                        title="Verwijderen"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                        <button
+                          onClick={() => handleStartEdit(cat)}
+                          className="p-1 rounded-md text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-colors"
+                          title="Bewerken"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmId(cat.id)}
+                          className="p-1 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
+                          title="Verwijderen"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {cat.description ? (

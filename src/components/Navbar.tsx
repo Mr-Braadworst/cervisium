@@ -39,6 +39,7 @@ interface NavbarProps {
   glassCount?: number;
   activeDealCount?: number;
   settings?: UserSettings;
+  readOnly?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -51,6 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   glassCount = 0,
   activeDealCount = 0,
   settings,
+  readOnly = false,
 }) => {
   // Standaard is de actie-teller op de Extra's knop UITGESCHAKELD (zoals gevraagd), en via Instellingen aan te zetten
   const showExtrasDealBadge = settings?.showExtrasDealBadge ?? false;
@@ -235,13 +237,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-2.5 shrink-0">
             {/* Quick Add Beer button */}
             <PWAInstallButton />
-            <button
-              onClick={onAddNewBeer}
-              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all hover:scale-105 active:scale-95 shrink-0"
-            >
-              <Plus className="w-4 h-4 stroke-[3] shrink-0" />
-              <span className="hidden xs:inline">Bier</span> Toevoegen
-            </button>
+            {!readOnly && (
+              <button
+                onClick={onAddNewBeer}
+                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all hover:scale-105 active:scale-95 shrink-0"
+              >
+                <Plus className="w-4 h-4 stroke-[3] shrink-0" />
+                <span className="hidden xs:inline">Bier</span> Toevoegen
+              </button>
+            )}
 
             {/* User Profile Pill - Klik op je eigen profiel om naar het aparte Instellingen-tabje te gaan */}
             <div className="flex items-center gap-1.5 shrink-0">

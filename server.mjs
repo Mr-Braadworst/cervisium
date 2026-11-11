@@ -480,6 +480,7 @@ var CentralDatabaseClient = class {
     this.memoryUsers = /* @__PURE__ */ new Map();
     this.memoryCollections = /* @__PURE__ */ new Map();
     this.memoryFriends = /* @__PURE__ */ new Map();
+    this.memoryFriendTimestamps = /* @__PURE__ */ new Map();
     this.memorySystemSettings = /* @__PURE__ */ new Map();
   }
   isPostgresConfigured() {
@@ -1085,13 +1086,14 @@ var CentralDatabaseClient = class {
     if (friendProfile.id === userId) {
       return { success: false, message: "Je kunt jezelf niet als vriend toevoegen." };
     }
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
     if (this.pool) {
       try {
         await this.pool.query(
           `
           INSERT INTO user_friends (user_id, friend_id, status, created_at)
           VALUES ($1, $2, 'accepted', NOW()), ($2, $1, 'accepted', NOW())
-          ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted';
+          ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted', created_at = NOW();
           `,
           [userId, friendProfile.id]
         );
@@ -1103,6 +1105,8 @@ var CentralDatabaseClient = class {
     if (!this.memoryFriends.has(friendProfile.id)) this.memoryFriends.set(friendProfile.id, /* @__PURE__ */ new Set());
     this.memoryFriends.get(userId).add(friendProfile.id);
     this.memoryFriends.get(friendProfile.id).add(userId);
+    this.memoryFriendTimestamps.set(`${userId}:${friendProfile.id}`, nowIso);
+    this.memoryFriendTimestamps.set(`${friendProfile.id}:${userId}`, nowIso);
     return {
       success: true,
       friend: friendProfile,
@@ -1145,6 +1149,7 @@ var CentralDatabaseClient = class {
       const fUser = await this.getUserById(fid);
       if (fUser) {
         const recs = await this.getUserRecords(fid);
+        const connectedAt = this.memoryFriendTimestamps.get(`${userId}:${fid}`) || fUser.createdAt || (/* @__PURE__ */ new Date()).toISOString();
         list.push({
           id: fUser.id,
           name: fUser.name,
@@ -1152,7 +1157,7 @@ var CentralDatabaseClient = class {
           avatarUrl: fUser.avatarUrl,
           beerCount: recs.beers.length,
           tastingCount: recs.tastings.length,
-          connectedAt: (/* @__PURE__ */ new Date()).toISOString()
+          connectedAt
         });
       }
     }
@@ -2190,7 +2195,16 @@ async function startServer() {
   app.get("/api/friends", requireAuth, async (req, res) => {
     try {
       const authUser = req.authUser;
-      const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      let profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      if (!profile) {
+        profile = await centralDb.upsertUser({
+          id: authUser.uid,
+          email: authUser.email,
+          name: authUser.name || "Bierliefhebber",
+          role: authUser.role,
+          lastActiveAt: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      }
       const effectiveUid = profile?.id || authUser.uid;
       const friends = await centralDb.getFriendsForUser(effectiveUid);
       res.json({ friends });
@@ -2201,7 +2215,16 @@ async function startServer() {
   app.post("/api/friends/accept", requireAuth, async (req, res) => {
     try {
       const authUser = req.authUser;
-      const profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      let profile = authUser.email ? await centralDb.getUserByEmail(authUser.email) : await centralDb.getUserById(authUser.uid);
+      if (!profile) {
+        profile = await centralDb.upsertUser({
+          id: authUser.uid,
+          email: authUser.email,
+          name: authUser.name || "Bierliefhebber",
+          role: authUser.role,
+          lastActiveAt: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      }
       const effectiveUid = profile?.id || authUser.uid;
       const { inviteCode, friendId } = req.body || {};
       const target = (inviteCode || friendId || "").trim();
@@ -2221,7 +2244,10 @@ async function startServer() {
           id: result.friend.id,
           name: result.friend.name,
           email: result.friend.email,
-          avatarUrl: result.friend.avatarUrl
+          avatarUrl: result.friend.avatarUrl,
+          beerCount: 0,
+          tastingCount: 0,
+          connectedAt: (/* @__PURE__ */ new Date()).toISOString()
         } : void 0
       });
     } catch {

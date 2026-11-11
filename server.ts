@@ -789,9 +789,18 @@ async function startServer() {
   app.get('/api/friends', requireAuth, async (req, res) => {
     try {
       const authUser = req.authUser!;
-      const profile = authUser.email
+      let profile = authUser.email
         ? await centralDb.getUserByEmail(authUser.email)
         : await centralDb.getUserById(authUser.uid);
+      if (!profile) {
+        profile = await centralDb.upsertUser({
+          id: authUser.uid,
+          email: authUser.email,
+          name: authUser.name || 'Bierliefhebber',
+          role: authUser.role,
+          lastActiveAt: new Date().toISOString(),
+        });
+      }
       const effectiveUid = profile?.id || authUser.uid;
       const friends = await centralDb.getFriendsForUser(effectiveUid);
       res.json({ friends });
@@ -803,9 +812,18 @@ async function startServer() {
   app.post('/api/friends/accept', requireAuth, async (req, res) => {
     try {
       const authUser = req.authUser!;
-      const profile = authUser.email
+      let profile = authUser.email
         ? await centralDb.getUserByEmail(authUser.email)
         : await centralDb.getUserById(authUser.uid);
+      if (!profile) {
+        profile = await centralDb.upsertUser({
+          id: authUser.uid,
+          email: authUser.email,
+          name: authUser.name || 'Bierliefhebber',
+          role: authUser.role,
+          lastActiveAt: new Date().toISOString(),
+        });
+      }
       const effectiveUid = profile?.id || authUser.uid;
       const { inviteCode, friendId } = (req.body || {}) as {
         inviteCode?: string;
@@ -830,6 +848,9 @@ async function startServer() {
               name: result.friend.name,
               email: result.friend.email,
               avatarUrl: result.friend.avatarUrl,
+              beerCount: 0,
+              tastingCount: 0,
+              connectedAt: new Date().toISOString(),
             }
           : undefined,
       });
