@@ -1,883 +1,1024 @@
-import React, { useState } from 'react';
-import { RatingBadge } from './RatingBadge';
-import { useAppVersion } from '../version';
+import React, { useState, useMemo } from 'react';
 import {
-  ArrowRight,
-  LogIn,
-  UserPlus,
+  Beer,
   Camera,
-  QrCode,
+  Star,
   MapPin,
-  Wine,
-  Heart,
-  PlusCircle,
-  Calendar,
-  Building2,
-  Clock,
-  Beer as BeerIcon,
+  GlassWater,
   Users,
-  Copy,
-  Check,
-  Eye,
+  ArrowRight,
   Plus,
-  Minus,
-  Gift,
-  Droplets,
-  Trophy,
+  Compass,
+  QrCode,
+  Heart,
+  Search,
+  ChevronRight,
+  RotateCcw,
+  Check,
+  Navigation,
 } from 'lucide-react';
-
-import heroBeerImg from '../assets/images/hero_craft_beer_tasting_1794225257636.jpg';
-import glasswareImg from '../assets/images/feature_glassware_collection_1794225258349.jpg';
-import friendsFlightImg from '../assets/images/feature_friends_tasting_1794225260196.jpg';
+import { useAppVersion } from '../version';
+import { PWAInstallButton } from './PWAInstallButton';
+import heroCraftBeerImg from '../assets/images/hero_craft_beer_tasting_1794225257636.jpg';
+import featureGlasswareImg from '../assets/images/feature_glassware_collection_1794225258349.jpg';
+import featureFriendsImg from '../assets/images/feature_friends_tasting_1794225260196.jpg';
 
 interface LandingPageProps {
-  onOpenLogin: (initialMode?: 'login' | 'register') => void;
   hasPendingInvite?: boolean;
+  onOpenLogin: (mode?: 'login' | 'register') => void;
+  onOpenRegister?: () => void;
 }
 
-interface SampleBeerEntry {
+type WorkbenchTab = 'logboek' | 'kroegentocht' | 'glazenkast' | 'stamtafel';
+
+interface DemoBeerEntry {
   id: string;
+  indexNo: string;
   name: string;
   brewery: string;
   style: string;
-  styleColor: string;
   abv: number;
+  score: number;
+  serving: 'Van de tap' | 'Fles' | 'Blik';
+  location: string;
+  date: string;
+  note: string;
   favorite: boolean;
   photoUrl: string;
-  avgScore: number;
-  sessions: {
-    id: string;
-    date: string;
-    location: string;
-    servingType: 'tap' | 'fles' | 'blik';
-    score: number;
-    notes: string;
-  }[];
 }
 
-const SAMPLE_BEERS: SampleBeerEntry[] = [
+interface DemoCrawlStop {
+  order: number;
+  pubName: string;
+  address: string;
+  specialty: string;
+  recommendedBeer: string;
+  checkedIn: boolean;
+}
+
+const INITIAL_DEMO_BEERS: DemoBeerEntry[] = [
   {
-    id: 'st-bernardus-12',
+    id: 'demo-1',
+    indexNo: 'NR. 042',
     name: 'St. Bernardus Abt 12',
-    brewery: 'Brouwerij St. Bernardus',
+    brewery: 'Brouwerij St. Bernardus, Watou',
     style: 'Quadrupel',
-    styleColor: '#f59e0b',
     abv: 10.0,
+    score: 9.4,
+    serving: 'Van de tap',
+    location: 'Café In de Wildeman, Amsterdam',
+    date: 'Vrijdag 21:15',
+    note: 'Donker moutig, vijgen en kandij. Schuimkraag blijft tot de laatste slok staan.',
     favorite: true,
-    photoUrl: heroBeerImg,
-    avgScore: 9.4,
-    sessions: [
-      {
-        id: 's1',
-        date: '14 okt 2026',
-        location: 'Café Gollem, Amsterdam',
-        servingType: 'tap',
-        score: 9.6,
-        notes: 'Diepe tonen van gedroogde vijgen, karamelmout en een zachte, verwarmende afdronk.',
-      },
-      {
-        id: 's2',
-        date: '22 aug 2026',
-        location: 'Thuis op het terras',
-        servingType: 'fles',
-        score: 9.2,
-        notes: 'Rijk donker fruit en kruidige gisttonen, iets koeler geschonken.',
-      },
-    ],
+    photoUrl: heroCraftBeerImg,
   },
   {
-    id: 'karmeliet-tripel',
-    name: 'Tripel Karmeliet',
-    brewery: 'Brouwerij Bosteels',
-    style: 'Tripel',
-    styleColor: '#eab308',
-    abv: 8.4,
+    id: 'demo-2',
+    indexNo: 'NR. 041',
+    name: 'Orval Trappist (1 jaar gerijpt)',
+    brewery: 'Brasserie d’Orval, Villers-devant-Orval',
+    style: 'Belgian Pale Ale / Brett',
+    abv: 6.2,
+    score: 9.1,
+    serving: 'Fles',
+    location: 'De Gouverneur, Maastricht',
+    date: 'Zaterdag 17:40',
+    note: 'Kurkdroge afdronk door de wilde gist. In het originele kelkglas geschonken.',
     favorite: true,
-    photoUrl: glasswareImg,
-    avgScore: 8.9,
-    sessions: [
-      {
-        id: 's3',
-        date: '03 nov 2026',
-        location: 'Proeflokaal Arendsnest',
-        servingType: 'tap',
-        score: 9.0,
-        notes: 'Romige schuimkraag door gerst, tarwe en haver. Frisse toets van sinaasappelschil en vanille.',
-      },
-      {
-        id: 's4',
-        date: '19 jul 2026',
-        location: 'Stadsstrand Utrecht',
-        servingType: 'fles',
-        score: 8.8,
-        notes: 'Verfrissend kruidig en volmondig, perfecte balans tussen zoet en bitter.',
-      },
-    ],
+    photoUrl: featureGlasswareImg,
   },
   {
-    id: 'moersleutel-motor-oil',
-    name: 'Motor Oil Imperial Stout',
-    brewery: 'De Moersleutel',
+    id: 'demo-3',
+    indexNo: 'NR. 040',
+    name: 'De Molen Hel & Verdoemenis',
+    brewery: 'Brouwerij de Molen, Bodegraven',
     style: 'Imperial Stout',
-    styleColor: '#a855f7',
-    abv: 12.0,
+    abv: 10.0,
+    score: 8.8,
+    serving: 'Fles',
+    location: 'Proeflokaal Arendsnest, Amsterdam',
+    date: 'Vorige week',
+    note: 'Zwart als afgewerkte olie, gebrande espresso en pure chocolade. Rustig nippen.',
     favorite: false,
-    photoUrl: friendsFlightImg,
-    avgScore: 9.2,
-    sessions: [
-      {
-        id: 's5',
-        date: '29 okt 2026',
-        location: 'Biercafé Olivier',
-        servingType: 'blik',
-        score: 9.2,
-        notes: 'Stroperige body met krachtige espresso, pure chocolade en geroosterde mout.',
-      },
-    ],
-  },
-  {
-    id: 'uiltje-juicy-lucy',
-    name: 'Juicy Lucy NEIPA',
-    brewery: 'Het Uiltje Brewing Co.',
-    style: 'NEIPA',
-    styleColor: '#10b981',
-    abv: 6.5,
-    favorite: false,
-    photoUrl: friendsFlightImg,
-    avgScore: 8.6,
-    sessions: [
-      {
-        id: 's6',
-        date: '11 sep 2026',
-        location: 'Taproom Haarlem',
-        servingType: 'tap',
-        score: 8.6,
-        notes: 'Troebel goudgeel met uitgesproken aroma van mango, passievrucht en zachte hopbitterheid.',
-      },
-    ],
+    photoUrl: featureFriendsImg,
   },
 ];
 
-interface SampleGlassItem {
-  id: string;
-  name: string;
-  brand: string;
-  glassType: string;
-  volumeCl: number;
-  quantity: number;
-  favorite: boolean;
-  notes: string;
-}
-
-const INITIAL_SAMPLE_GLASSES: SampleGlassItem[] = [
-  {
-    id: 'g1',
-    name: 'St. Bernardus Kelk met Gouden Rand',
-    brand: 'St. Bernardus',
-    glassType: 'Kelk / Bokaal',
-    volumeCl: 33,
-    quantity: 4,
-    favorite: true,
-    notes: 'Originele abdijkelk met gegraveerde stermotieven in de bodem voor constante schuimvorming.',
+const DEMO_CITY_CRAWLS: Record<string, { title: string; subtitle: string; stops: DemoCrawlStop[] }> = {
+  Utrecht: {
+    title: 'Oudegracht & Werfkelders Tocht',
+    subtitle: '4 kroegen langs het water · 1,6 km wandelen',
+    stops: [
+      {
+        order: 1,
+        pubName: 'Café Olivier',
+        address: 'Achter Clarenburg 6a, Utrecht',
+        specialty: 'Belgische klassiekers in een voormalige schuilkerk',
+        recommendedBeer: 'Gouden Carolus Classic (8.5%)',
+        checkedIn: true,
+      },
+      {
+        order: 2,
+        pubName: 'Kafé België',
+        address: 'Oudegracht 196, Utrecht',
+        specialty: 'Meer dan 200 bieren op fles en rauwe kroegsfeer',
+        recommendedBeer: 'Dupont Saison (6.5%)',
+        checkedIn: true,
+      },
+      {
+        order: 3,
+        pubName: 'De Drie Dorstige Herten',
+        address: 'Lange Nieuwstraat 47, Utrecht',
+        specialty: 'Klein huiskamerproeflokaal met lokale brouwsels',
+        recommendedBeer: 'vandeStreek Playground of Hops',
+        checkedIn: false,
+      },
+      {
+        order: 4,
+        pubName: 'Brouwerij Maximus Proeflokaal',
+        address: 'Pratumplaats 2a, Utrecht',
+        specialty: 'Rechtstreeks uit de ketels naast de bar',
+        recommendedBeer: 'Maximus Pandora IPA (6.0%)',
+        checkedIn: false,
+      },
+    ],
   },
-  {
-    id: 'g2',
-    name: 'Tripel Karmeliet Lelie-Bokaal',
-    brand: 'Bosteels',
-    glassType: 'Kelk / Bokaal',
-    volumeCl: 33,
-    quantity: 2,
-    favorite: true,
-    notes: 'Sierlijk bol glas ontworpen door Antoine Bosteels met Franse lelie in reliëf.',
+  Maastricht: {
+    title: 'Kasseien & Bruine Kroegen Route',
+    subtitle: '3 karakterkroegen in de binnenstad · 1,1 km wandelen',
+    stops: [
+      {
+        order: 1,
+        pubName: 'In den Ouden Vogelstruys',
+        address: 'Vrijthof 15, Maastricht',
+        specialty: 'Huiskamercafé sinds 1730 aan het Vrijthof',
+        recommendedBeer: 'Stadsbrouwerij Maastricht Maltezer',
+        checkedIn: true,
+      },
+      {
+        order: 2,
+        pubName: 'De Gouverneur',
+        address: 'Boschstraat 105a, Maastricht',
+        specialty: 'Overweldigende bierkaart en trappisten op rijping',
+        recommendedBeer: 'Rochefort 10 (11.3%)',
+        checkedIn: false,
+      },
+      {
+        order: 3,
+        pubName: 'Café Falstaff',
+        address: 'Sint Amorsplein 6, Maastricht',
+        specialty: 'Wisselende vaten en steengoed terras',
+        recommendedBeer: 'Chouffe Bok 6666 (6.6%)',
+        checkedIn: false,
+      },
+    ],
   },
-  {
-    id: 'g3',
-    name: 'Saison Proefglas',
-    brand: 'Dupont',
-    glassType: 'Tulpglas',
-    volumeCl: 25,
-    quantity: 3,
-    favorite: false,
-    notes: 'Taps toelopend tulpglas dat kruidige gist- en hoparoma’s vasthoudt.',
+  Groningen: {
+    title: 'Kromme Elleboog & Kolenmuur Tocht',
+    subtitle: '3 authentieke biercafés · 950 meter wandelen',
+    stops: [
+      {
+        order: 1,
+        pubName: 'De Koffer',
+        address: 'Nieuwe Blekerstraat 1, Groningen',
+        specialty: '280+ speciaalbieren en ouderwetse houten bar',
+        recommendedBeer: 'Baxbier Kon Minder (5.3%)',
+        checkedIn: true,
+      },
+      {
+        order: 2,
+        pubName: 'Café De Sleutel',
+        address: 'Noorderhaven 72, Groningen',
+        specialty: 'Oudste bruine kroeg aan de haven (sinds 1885)',
+        recommendedBeer: 'Westmalle Dubbel van het vat (7.0%)',
+        checkedIn: false,
+      },
+      {
+        order: 3,
+        pubName: 'Mout & Brouwhuis',
+        address: 'Gedempte Zuiderdiep 43, Groningen',
+        specialty: 'Lokaal gebrouwen en robuuste proefplankjes',
+        recommendedBeer: 'Martinus Rookbier (6.2%)',
+        checkedIn: false,
+      },
+    ],
   },
-];
-
-type PreviewModuleTab = 'bierlijst' | 'glazenkast' | 'vrienden' | 'bierteller';
+};
 
 export const LandingPage: React.FC<LandingPageProps> = ({
+  hasPendingInvite,
   onOpenLogin,
-  hasPendingInvite = false,
+  onOpenRegister,
 }) => {
-  const [activePreviewModule, setActivePreviewModule] = useState<PreviewModuleTab>('bierlijst');
-  const [selectedStyleFilter, setSelectedStyleFilter] = useState<string>('Alle stijlen');
-  const [selectedSampleId, setSelectedSampleId] = useState<string>(SAMPLE_BEERS[0].id);
-  const [sampleFavorites, setSampleFavorites] = useState<Record<string, boolean>>({
-    'st-bernardus-12': true,
-    'karmeliet-tripel': true,
+  const { appVersion, versionDate } = useAppVersion();
+
+  const handleLoginClick = () => onOpenLogin('login');
+  const handleRegisterClick = () => {
+    if (onOpenRegister) {
+      onOpenRegister();
+    } else {
+      onOpenLogin('register');
+    }
+  };
+
+  // Interactive workbench state so visitors can test real features on the landing page
+  const [activeWorkbench, setActiveWorkbench] = useState<WorkbenchTab>('logboek');
+  const [demoBeers, setDemoBeers] = useState<DemoBeerEntry[]>(INITIAL_DEMO_BEERS);
+  const [selectedBeerId, setSelectedBeerId] = useState<string>(INITIAL_DEMO_BEERS[0].id);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Quick-add form inside interactive demo
+  const [newBeerName, setNewBeerName] = useState('');
+  const [newBeerStyle, setNewBeerStyle] = useState('Tripel');
+  const [newBeerScore, setNewBeerScore] = useState<number>(8.6);
+  const [newBeerLocation, setNewBeerLocation] = useState('Café Olivier, Utrecht');
+  const [justAddedToast, setJustAddedToast] = useState<string | null>(null);
+
+  // Interactive Kroegentocht state
+  const [selectedCity, setSelectedCity] = useState<'Utrecht' | 'Maastricht' | 'Groningen'>('Utrecht');
+  const [customStops, setCustomStops] = useState<Record<string, DemoCrawlStop[]>>({
+    Utrecht: DEMO_CITY_CRAWLS.Utrecht.stops,
+    Maastricht: DEMO_CITY_CRAWLS.Maastricht.stops,
+    Groningen: DEMO_CITY_CRAWLS.Groningen.stops,
   });
 
-  const [sampleGlasses, setSampleGlasses] = useState<SampleGlassItem[]>(INITIAL_SAMPLE_GLASSES);
-  const [copiedDemoLink, setCopiedDemoLink] = useState(false);
-  const [viewingDemoFriend, setViewingDemoFriend] = useState<string | null>('Thomas de Vries');
-  const [demoBeersDrunk, setDemoBeersDrunk] = useState<number>(3);
-  const [demoWaterGlasses, setDemoWaterGlasses] = useState<number>(1);
+  // Interactive Glassware state
+  const [demoGlasses, setDemoGlasses] = useState([
+    { id: 'g1', name: 'Orval Kelkglas (Goudbies)', brewery: 'Brasserie d’Orval', type: 'Kelk / Goblet', count: 2 },
+    { id: 'g2', name: 'Karmeliet Lelie Bokaal', brewery: 'Brouwerij Bosteels', type: 'Tulp / Bokaal', count: 4 },
+    { id: 'g3', name: 'Duvel gegraveerd M-glas', brewery: 'Duvel Moortgat', type: 'Tulpglas', count: 3 },
+  ]);
 
-  const { appVersion, versionDate } = useAppVersion();
-  const [heroImgFailed, setHeroImgFailed] = useState(false);
-  const [glassImgFailed, setGlassImgFailed] = useState(false);
-  const [friendsImgFailed, setFriendsImgFailed] = useState(false);
+  const activeBeer = useMemo(
+    () => demoBeers.find((b) => b.id === selectedBeerId) || demoBeers[0],
+    [demoBeers, selectedBeerId]
+  );
 
-  const styleOptions = ['Alle stijlen', 'Quadrupel', 'Tripel', 'Imperial Stout', 'NEIPA'];
-
-  const filteredSamples =
-    selectedStyleFilter === 'Alle stijlen'
-      ? SAMPLE_BEERS
-      : SAMPLE_BEERS.filter((b) => b.style === selectedStyleFilter);
-
-  const activeSample =
-    filteredSamples.find((b) => b.id === selectedSampleId) ||
-    filteredSamples[0] ||
-    SAMPLE_BEERS[0];
-
-  const handleAdjustGlassQty = (id: string, delta: number) => {
-    setSampleGlasses((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, quantity: Math.max(0, g.quantity + delta) } : g))
+  const filteredDemoBeers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return demoBeers;
+    return demoBeers.filter(
+      (b) =>
+        b.name.toLowerCase().includes(q) ||
+        b.brewery.toLowerCase().includes(q) ||
+        b.style.toLowerCase().includes(q) ||
+        b.location.toLowerCase().includes(q)
     );
+  }, [demoBeers, searchQuery]);
+
+  const handleAddDemoBeer = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newBeerName.trim() || 'La Chouffe Blond';
+    const nextNo = `NR. 0${demoBeers.length + 40}`;
+    const created: DemoBeerEntry = {
+      id: `demo-${Date.now()}`,
+      indexNo: nextNo,
+      name: cleanName,
+      brewery: 'Toegevoegd in proeflogboek',
+      style: newBeerStyle,
+      abv: 8.0,
+      score: Number(newBeerScore),
+      serving: 'Van de tap',
+      location: newBeerLocation.trim() || 'Aan de stamtafel',
+      date: 'Zojuist genoteerd',
+      note: `Geproefd bij ${newBeerLocation.trim() || 'de stamtafel'}. Direct gekoppeld aan je route en bierlijst.`,
+      favorite: newBeerScore >= 8.5,
+      photoUrl: heroCraftBeerImg,
+    };
+    setDemoBeers((prev) => [created, ...prev]);
+    setSelectedBeerId(created.id);
+    setNewBeerName('');
+    setJustAddedToast(`"${created.name}" (${created.score.toFixed(1)}) opgeschreven in het proefboek.`);
+    setTimeout(() => setJustAddedToast(null), 4000);
+  };
+
+  const toggleStopCheckIn = (city: string, order: number, pubName: string) => {
+    setCustomStops((prev) => {
+      const currentList = prev[city] || [];
+      return {
+        ...prev,
+        [city]: currentList.map((stop) =>
+          stop.order === order ? { ...stop, checkedIn: !stop.checkedIn } : stop
+        ),
+      };
+    });
+    setNewBeerLocation(`${pubName}, ${city}`);
+  };
+
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-amber-500 selection:text-zinc-950">
-      {/* Top Bar Contract: Strictly 1 row, 3 zones separated by gap-8 */}
-      <header className="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/80">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-600 selection:text-zinc-950">
+      {/* ===================================================================
+          TOP BAR CONTRACT: Strictly 1 row, 3 zones separated by gap-8
+          Zone 1: Brand Identity | Zone 2: 4 Single-line links | Zone 3: 1 CTA
+         =================================================================== */}
+      <header className="sticky top-0 z-50 border-b border-zinc-800/90 bg-zinc-950/95 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
-          {/* Zone 1: Single text element wordmark */}
+          {/* Zone 1: Brand Wordmark */}
           <a
             href="#top"
-            translate="no"
-            data-no-translate="true"
-            className="notranslate text-xl font-bold tracking-tight text-zinc-100 whitespace-nowrap shrink-0 font-['Playfair_Display',serif]"
+            className="flex items-center gap-3 shrink-0 group focus:outline-none"
           >
-            Cervisium
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 flex items-center justify-center text-zinc-950 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform">
+              <Beer className="w-5 h-5 stroke-[2.5]" />
+            </div>
+            <div className="flex items-baseline gap-2.5">
+              <span
+                translate="no"
+                data-no-translate="true"
+                className="notranslate font-display text-2xl font-bold tracking-tight text-zinc-100 group-hover:text-amber-500 transition-colors"
+              >
+                Cervisium
+              </span>
+              <span className="hidden sm:inline-block font-mono text-[11px] uppercase tracking-widest text-zinc-500">
+                Brouwersdagboek
+              </span>
+            </div>
           </a>
 
-          {/* Zone 2: 4 concise single-line text navigation links */}
-          <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-zinc-400">
-            <a
-              href="#app-onderdelen"
-              className="hover:text-zinc-100 hover:underline underline-offset-8 decoration-amber-500/80 transition-colors whitespace-nowrap shrink-0"
+          {/* Zone 2: Max 4 concise single-line links */}
+          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-400">
+            <button
+              type="button"
+              onClick={() => scrollToSection('proeflokaal')}
+              className="whitespace-nowrap hover:text-zinc-100 transition-colors cursor-pointer"
             >
-              App Voorbeelden
-            </a>
-            <a
-              href="#wat-is-cervisium"
-              className="hover:text-zinc-100 hover:underline underline-offset-8 decoration-amber-500/80 transition-colors whitespace-nowrap shrink-0"
+              Proeflokaal
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection('kroegentocht')}
+              className="whitespace-nowrap hover:text-zinc-100 transition-colors cursor-pointer"
             >
-              Wat kun je doen?
-            </a>
-            <a
-              href="#glazen-en-tools"
-              className="hover:text-zinc-100 hover:underline underline-offset-8 decoration-amber-500/80 transition-colors whitespace-nowrap shrink-0"
+              Kroegentocht
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection('glazenkast')}
+              className="whitespace-nowrap hover:text-zinc-100 transition-colors cursor-pointer"
             >
-              Glazenkast &amp; Extra&apos;s
-            </a>
-            <a
-              href="#vrienden-en-samen"
-              className="hover:text-zinc-100 hover:underline underline-offset-8 decoration-amber-500/80 transition-colors whitespace-nowrap shrink-0"
+              Glazenkast
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection('stamtafel')}
+              className="whitespace-nowrap hover:text-zinc-100 transition-colors cursor-pointer"
             >
-              Samen met Vrienden
-            </a>
+              Stamtafel
+            </button>
           </nav>
 
-          {/* Zone 3: 1 primary action */}
+          {/* Zone 3: 1 Primary CTA button */}
           <div className="flex items-center shrink-0">
             <button
               type="button"
-              onClick={() => onOpenLogin('login')}
-              className="px-4 py-2 text-xs sm:text-sm font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              onClick={handleLoginClick}
+              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer stamp-border"
             >
-              Inloggen
+              Open je logboek
             </button>
           </div>
         </div>
       </header>
 
-      <main id="top" className="flex-1">
-        {/* Pending Friend Invite Banner if user clicked an invite link */}
-        {hasPendingInvite && (
-          <div className="border-b border-amber-500/30 bg-amber-500/10">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs sm:text-sm text-amber-200">
-              <span>
-                Je hebt een vriendschapsuitnodiging geopend. Log in of maak een gratis account aan om elkaars biercollectie te bekijken.
-              </span>
-              <button
-                type="button"
-                onClick={() => onOpenLogin('login')}
-                className="text-amber-400 hover:text-amber-300 font-semibold underline underline-offset-4 whitespace-nowrap shrink-0 text-left sm:text-right cursor-pointer"
-              >
-                Nu accepteren &rarr;
-              </button>
+      {/* Pending Friend Invite Banner */}
+      {hasPendingInvite && (
+        <div className="bg-amber-600/15 border-b border-amber-500/50 px-4 py-3">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
+            <div className="text-amber-300">
+              ★ UITNODIGING VOOR DE STAMTAFEL ONTVANGEN — Log in of maak je logboek aan om direct
+              met je vriend gekoppeld te worden.
+            </div>
+            <button
+              type="button"
+              onClick={handleLoginClick}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold uppercase tracking-wider cursor-pointer shrink-0"
+            >
+              Koppeling voltooien →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================
+          ASYMMETRIC EDITORIAL HERO (No centered SaaS template, no pills)
+         =================================================================== */}
+      <section id="top" className="relative border-b border-zinc-800/90 pt-10 pb-16 sm:pt-16 sm:pb-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Editorial Broadsheet Masthead Strip */}
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-5 mb-10 border-b border-zinc-800 text-xs font-mono text-zinc-400">
+            <div>
+              UITGAVE VOOR BIERLIEFHEBBERS · GEEN ADVERTENTIES · GEEN ALGORITMES
+            </div>
+            <div className="tabular-nums">
+              LOGBOEK VERSIE v{appVersion}{versionDate ? ` · ${versionDate}` : ''}
             </div>
           </div>
-        )}
 
-        {/* Section 1: Hero Proposition */}
-        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 sm:pt-16 pb-12 sm:pb-16">
-          <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch gap-8 lg:gap-12">
-            {/* Left Column: Editorial Value Proposition */}
-            <div className="lg:col-span-6 flex flex-col justify-between space-y-8 py-2">
-              <div className="space-y-5">
-                <p className="text-xs sm:text-sm font-medium text-amber-400 tracking-wide">
-                  Jouw Biercollectie &middot; Proefnotities &middot; Glazenkast
-                </p>
-
-                <h1
-                  className="font-['Playfair_Display',serif] font-bold text-zinc-100 tracking-tight leading-[1.12]"
-                  style={{
-                    fontSize: 'clamp(2.25rem, 4vw, 3.65rem)',
-                    textWrap: 'balance',
-                  }}
-                >
-                  Bewaar elk bijzonder bier dat je proeft, inclusief waar en met wie.
-                </h1>
-
-                <p className="text-base sm:text-lg text-zinc-300 leading-relaxed max-w-xl">
-                  Cervisium is jouw persoonlijke bierboekje voor op het terras en thuis. Leg gedronken speciaalbieren vast met een eigen foto, geef een cijfer van 1 tot 10, noteer het café waar je zat en houd bij welke bieren je favoriet zijn.
-                </p>
+          {/* 12-Column Asymmetric Split (7 cols editorial typography / 5 cols documentary frame + overlapping index card) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-start">
+            {/* Left 7 Columns: Raw, direct, human story */}
+            <div className="lg:col-span-7 space-y-8">
+              <div className="font-mono text-xs uppercase tracking-widest text-amber-500">
+                00 / Het notitieboek voor aan de toog
               </div>
 
-              <div className="space-y-5 pt-2">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={() => onOpenLogin('register')}
-                    className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-lg shadow-amber-500/15"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    <span>Start je eigen bierlijst</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+              <h1 className="font-display text-4xl sm:text-6xl lg:text-[4.15rem] font-bold tracking-tight text-zinc-100 leading-[1.03]">
+                Goed bier verdient meer dan een vage foto op je filmrol.
+              </h1>
 
-                  <button
-                    type="button"
-                    onClick={() => onOpenLogin('login')}
-                    className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl border border-zinc-800 hover:border-zinc-700 bg-zinc-900/60 hover:bg-zinc-900 text-zinc-200 font-semibold text-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                  >
-                    <LogIn className="w-4 h-4 text-amber-400" />
-                    <span>Ik heb al een account</span>
-                  </button>
+              <p className="text-lg sm:text-xl text-zinc-300 leading-relaxed max-w-[60ch]">
+                Je kent het: twee maanden geleden dronk je in een bruine kroeg een fantastische
+                Quadrupel van het vat, maar je weet de brouwer of de naam niet meer.{' '}
+                <strong className="text-zinc-100 font-semibold">Cervisium</strong> is jouw eigen,
+                nuchtere bierboekje. Schrijf op wat je drinkt, geef een eerlijk cijfer van 1 tot 10,
+                stippel een kroegentocht uit en kijk wat je vrienden hebben geproefd.
+              </p>
+
+              {/* Action Row: Direct, grounded buttons + unboxed link */}
+              <div className="pt-2 flex flex-wrap items-center gap-5">
+                <button
+                  type="button"
+                  onClick={handleRegisterClick}
+                  className="inline-flex items-center gap-3 px-6 py-4 rounded-2xl bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold text-sm tracking-wide transition-all cursor-pointer stamp-border"
+                >
+                  <span>Begin je eigen bierboekje</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLoginClick}
+                  className="inline-flex items-center gap-2 px-5 py-4 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 font-semibold text-sm transition-colors cursor-pointer"
+                >
+                  <span>Ik heb al een logboek (Inloggen)</span>
+                </button>
+
+                <PWAInstallButton variant="landing" />
+              </div>
+
+              {/* Unboxed Editorial Ledger Facts (Zero-pill discipline, clean tabular numbers) */}
+              <div className="pt-8 border-t border-zinc-800 grid grid-cols-2 sm:grid-cols-3 gap-6">
+                <div>
+                  <div className="font-mono text-2xl sm:text-3xl font-bold text-zinc-100 tabular-nums">
+                    1,0 — 10
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-1 leading-snug">
+                    Rapportcijfers op een halve punt nauwkeurig, zoals het hoort.
+                  </div>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
-                  <span>Gratis account aanmaken</span>
-                  <span aria-hidden="true">&middot;</span>
-                  <span>Altijd bij de hand op je telefoon</span>
-                  <span aria-hidden="true">&middot;</span>
-                  <span>Deel je lijst met vrienden</span>
+                <div className="border-l border-zinc-800 pl-5">
+                  <div className="font-mono text-2xl sm:text-3xl font-bold text-amber-500 tabular-nums">
+                    100% Privé
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-1 leading-snug">
+                    Alleen vrienden die jouw QR-code scannen mogen meekijken.
+                  </div>
+                </div>
+                <div className="col-span-2 sm:col-span-1 border-t sm:border-t-0 sm:border-l border-zinc-800 pt-4 sm:pt-0 sm:pl-5">
+                  <div className="font-mono text-2xl sm:text-3xl font-bold text-zinc-100 tabular-nums">
+                    Stad &amp; Dorp
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-1 leading-snug">
+                    Maak een kroegentocht op maat en vink je stops onderweg af.
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: High-Impact Editorial Photography with Real Record Overlay */}
-            <div className="lg:col-span-6 flex">
-              <div className="relative w-full min-h-[320px] sm:min-h-[420px] lg:h-full rounded-2xl overflow-hidden border border-zinc-800/90 bg-zinc-900 flex flex-col justify-end">
-                {!heroImgFailed ? (
+            {/* Right 5 Columns: Documentary Photography + Overlapping Index Card */}
+            <div className="lg:col-span-5 relative">
+              {/* Documentary Photo Frame */}
+              <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-3 stamp-border">
+                <div className="relative aspect-[4/5] rounded-xl overflow-hidden bg-zinc-950">
                   <img
-                    src={heroBeerImg}
-                    alt="Belgisch speciaalbier in tulpglas naast een leren proefnotitieboek op een eikenhouten bar"
-                    referrerPolicy="no-referrer"
-                    onError={() => setHeroImgFailed(true)}
-                    className="absolute inset-0 w-full h-full object-cover"
+                    src={heroCraftBeerImg}
+                    alt="Proefglas donker speciaalbier op een houten kroegtafel"
+                    className="w-full h-full object-cover photo-analog"
                   />
-                ) : (
-                  <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-zinc-950 to-amber-950/30 flex items-center justify-center">
-                    <Wine className="w-16 h-16 text-amber-500/30" />
-                  </div>
-                )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/90 via-zinc-950/20 to-transparent" />
 
-                {/* Measured contrast scrim */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent" />
-
-                {/* Authentic unboxed logbook caption */}
-                <div className="relative z-10 p-6 sm:p-8 space-y-2">
-                  <div className="flex items-center justify-between gap-4 text-xs text-amber-300/90 font-medium">
-                    <span>Voorbeeld uit het proeflogboek</span>
-                    <span className="font-mono tabular-nums text-zinc-200">
-                      Gemiddelde score: 9.4 / 10 (Uitmuntend)
-                    </span>
+                  {/* Documentary archive stamp in top corner */}
+                  <div className="absolute top-3 left-3 rounded-lg bg-zinc-950/90 border border-zinc-700 px-2.5 py-1 font-mono text-[11px] text-zinc-300">
+                    ARCHIEFBEELD · STAMTAFEL #04
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-                    St. Bernardus Abt 12
-                  </h2>
-                  <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
-                    Brouwerij St. Bernardus &middot; Quadrupel &middot; 10.0% ABV &middot; Van het vat bij Café Gollem
-                  </p>
-                  <p className="text-xs text-zinc-400 italic pt-1">
-                    &ldquo;Volle moutbody met gedroogde vijgen, donkere kandij en een lange, zachte afdronk.&rdquo;
-                  </p>
+                </div>
+
+                <div className="pt-3 pb-1 px-1 flex items-center justify-between text-[11px] font-mono text-zinc-400">
+                  <span>FIG. 1 — PROEFNOTITIE AAN DE BAR</span>
+                  <span className="tabular-nums">10.0% ABV · 12°C</span>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Full-width 4-column overview bar below the hero split */}
-          <div className="mt-12 pt-8 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-            <div className="space-y-1.5">
-              <div className="text-xl font-bold text-amber-400">
-                Cijfer 1 tot 10
-              </div>
-              <div className="text-sm font-semibold text-zinc-200">
-                Jouw eigen smaak &amp; oordeel
-              </div>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Geef elk bier een cijfer en schrijf een korte proefnotitie, zodat je in het café of de winkel altijd weet wat je lekker vond.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="text-xl font-bold text-amber-400">
-                Tap, Fles of Blik
-              </div>
-              <div className="text-sm font-semibold text-zinc-200">
-                Meerdere proefmomenten per bier
-              </div>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Drink je een bier later nog eens op een ander terras? Voeg het nieuwe moment toe en zie direct wat je het bier gemiddeld geeft.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="text-xl font-bold text-amber-400">
-                Glazenkast
-              </div>
-              <div className="text-sm font-semibold text-zinc-200">
-                Jouw bierglazen thuis bijhouden
-              </div>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Zet al je speciaalbierglazen op een rij met eigen foto&apos;s en aantallen, zodat je precies weet welke glazen je al verzameld hebt.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="text-xl font-bold text-amber-400">
-                Samen Proeven
-              </div>
-              <div className="text-sm font-semibold text-zinc-200">
-                Vrienden toevoegen via QR-code
-              </div>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Scan aan tafel de QR-code van een vriend of deel je uitnodigingslink om door elkaars bierlijsten en favorieten te bladeren.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Section 2: ECHTE VISUELE VOORBEELDEN VAN DE APP-ONDERDELEN */}
-        <section id="app-onderdelen" className="py-16 sm:py-20 border-t border-zinc-800/80 bg-zinc-900/25">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-              <div className="space-y-2 max-w-2xl">
-                <p className="text-xs font-medium text-amber-400 tracking-wide">
-                  Kijkje in de app
-                </p>
-                <h2 className="text-2xl sm:text-3xl font-bold text-zinc-100 tracking-tight font-['Playfair_Display',serif]">
-                  Probeer de onderdelen van Cervisium hier direct uit
+              {/* Overlapping Tactile Tasting Index Card */}
+              <div className="mt-4 sm:-mt-16 sm:-ml-8 relative z-10 bg-zinc-900 border border-amber-600/60 rounded-2xl p-5 stamp-border max-w-md">
+                <div className="flex items-baseline justify-between border-b border-zinc-800 pb-2.5 mb-3">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-amber-500">
+                    LAATSTE NOTITIE · NR. 042
+                  </span>
+                  <span className="font-mono text-lg font-bold text-amber-400 tabular-nums">
+                    9.4 / 10
+                  </span>
+                </div>
+                <h2 className="font-display text-xl font-bold text-zinc-100">
+                  St. Bernardus Abt 12
                 </h2>
-                <p className="text-sm text-zinc-400">
-                  Klik op de vier onderdelen hiernaast om te zien hoe je eigen bierlijst, je glazenkast, je vriendenlijst en de avond-bierteller eruitzien.
+                <p className="text-xs font-mono text-zinc-400 mt-0.5">
+                  Quadrupel · 10.0% ABV · Van de tap · Café In de Wildeman
+                </p>
+                <p className="text-sm text-zinc-300 mt-3 italic leading-relaxed border-l-2 border-amber-600 pl-3">
+                  &ldquo;Volle mout, gedroogde vijg en donkere kandij. Geschonken in eigen kelkglas
+                  op kelderkoeling.&rdquo;
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-              {/* Module Switcher Tabs (echte knoppen uit de app-navigatie) */}
-              <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-zinc-900 border border-zinc-800 rounded-xl self-start">
+      {/* ===================================================================
+          INTERACTIVE PROEFLOKAAL WORKBENCH
+          Visitors can test the actual logbook, kroegentocht & glassware live
+         =================================================================== */}
+      <section id="proeflokaal" className="py-16 sm:py-24 border-b border-zinc-800/90">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Asymmetric Editorial Header */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end mb-10">
+            <div className="lg:col-span-7">
+              <div className="font-mono text-xs uppercase tracking-widest text-amber-500 mb-2">
+                01 / Probeer het hier direct uit
+              </div>
+              <h2 className="font-display text-3xl sm:text-5xl font-bold text-zinc-100 tracking-tight">
+                Geen plaatjes van schermen, maar een werkend proefblad.
+              </h2>
+            </div>
+            <div className="lg:col-span-5 text-sm text-zinc-400 leading-relaxed">
+              Klik hieronder door een echt voorbeeld van het logboek. Schrijf een proefnotitie bij,
+              vink een kroeg af op een kroegentocht door Utrecht of Maastricht, of bekijk de
+              glazenkast.
+            </div>
+          </div>
+
+          {/* Interactive Ledger Container */}
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden stamp-border">
+            {/* Workbench Folder Tabs */}
+            <div className="border-b border-zinc-800 bg-zinc-950/70 px-4 sm:px-6 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 py-2.5">
                 <button
                   type="button"
-                  onClick={() => setActivePreviewModule('bierlijst')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    activePreviewModule === 'bierlijst'
-                      ? 'bg-amber-500 text-zinc-950'
-                      : 'text-zinc-400 hover:text-zinc-100'
+                  onClick={() => setActiveWorkbench('logboek')}
+                  className={`px-4 py-2 text-xs font-mono uppercase tracking-wider rounded-xl transition-colors cursor-pointer ${
+                    activeWorkbench === 'logboek'
+                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60 border border-transparent'
                   }`}
                 >
-                  <BeerIcon className="w-3.5 h-3.5" />
-                  <span>1. Bierlijst &amp; Proefkaart</span>
+                  I. Bierlogboek ({demoBeers.length})
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActivePreviewModule('glazenkast')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    activePreviewModule === 'glazenkast'
-                      ? 'bg-amber-500 text-zinc-950'
-                      : 'text-zinc-400 hover:text-zinc-100'
+                  onClick={() => setActiveWorkbench('kroegentocht')}
+                  className={`px-4 py-2 text-xs font-mono uppercase tracking-wider rounded-xl transition-colors cursor-pointer ${
+                    activeWorkbench === 'kroegentocht'
+                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60 border border-transparent'
                   }`}
                 >
-                  <Wine className="w-3.5 h-3.5" />
-                  <span>2. Bierglazenkast</span>
+                  II. Kroegentocht Route
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActivePreviewModule('vrienden')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    activePreviewModule === 'vrienden'
-                      ? 'bg-amber-500 text-zinc-950'
-                      : 'text-zinc-400 hover:text-zinc-100'
+                  onClick={() => setActiveWorkbench('glazenkast')}
+                  className={`px-4 py-2 text-xs font-mono uppercase tracking-wider rounded-xl transition-colors cursor-pointer ${
+                    activeWorkbench === 'glazenkast'
+                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60 border border-transparent'
                   }`}
                 >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>3. Vrienden &amp; QR-Scanner</span>
+                  III. De Glazenkast
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActivePreviewModule('bierteller')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    activePreviewModule === 'bierteller'
-                      ? 'bg-amber-500 text-zinc-950'
-                      : 'text-zinc-400 hover:text-zinc-100'
+                  onClick={() => setActiveWorkbench('stamtafel')}
+                  className={`px-4 py-2 text-xs font-mono uppercase tracking-wider rounded-xl transition-colors cursor-pointer ${
+                    activeWorkbench === 'stamtafel'
+                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60 border border-transparent'
                   }`}
                 >
-                  <Gift className="w-3.5 h-3.5" />
-                  <span>4. Bierteller &amp; Acties</span>
+                  IV. Vrienden &amp; Alleen-lezen
+                </button>
+              </div>
+
+              <div className="hidden sm:flex items-center gap-3 text-xs font-mono text-zinc-500 py-2">
+                <span>INTERACTIEF PROEFMODEL</span>
+                <span>·</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDemoBeers(INITIAL_DEMO_BEERS);
+                    setSelectedBeerId(INITIAL_DEMO_BEERS[0].id);
+                  }}
+                  className="inline-flex items-center gap-1 text-zinc-400 hover:text-amber-400 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset
                 </button>
               </div>
             </div>
 
-            {/* MODULE 1: ECHTE BIERKAARTEN & PROEFGESCHIEDENIS WEERGAVE */}
-            {activePreviewModule === 'bierlijst' && (
-              <div className="space-y-6">
-                {/* Filterbalk per stijl */}
-                <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-zinc-800/80">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {styleOptions.map((style) => {
-                      const isActive = selectedStyleFilter === style;
+            {/* WORKBENCH PANEL 1: BIERLOGBOEK */}
+            {activeWorkbench === 'logboek' && (
+              <div className="p-5 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Left 7 columns: Ledger list + search + quick add */}
+                <div className="lg:col-span-7 space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-800">
+                    <div>
+                      <h3 className="font-display text-xl font-bold text-zinc-100">
+                        Geproefde Bieren Register
+                      </h3>
+                      <p className="text-xs text-zinc-400">
+                        Klik op een regel om de volledige kaart te bekijken of voeg er zelf een toe.
+                      </p>
+                    </div>
+                    <div className="relative w-full sm:w-56">
+                      <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Zoek op bier, stijl of kroeg..."
+                        className="w-full pl-8 pr-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  {justAddedToast && (
+                    <div className="p-3 bg-amber-600/15 border border-amber-500/40 rounded-xl text-xs text-amber-300 font-mono">
+                      ✓ {justAddedToast}
+                    </div>
+                  )}
+
+                  {/* Beer Index Rows */}
+                  <div className="divide-y divide-zinc-800 border border-zinc-800 bg-zinc-950/60 rounded-2xl overflow-hidden">
+                    {filteredDemoBeers.map((beer) => {
+                      const isSelected = beer.id === activeBeer.id;
                       return (
                         <button
-                          key={style}
+                          key={beer.id}
                           type="button"
-                          onClick={() => {
-                            setSelectedStyleFilter(style);
-                            const nextList =
-                              style === 'Alle stijlen'
-                                ? SAMPLE_BEERS
-                                : SAMPLE_BEERS.filter((b) => b.style === style);
-                            if (nextList.length > 0) {
-                              setSelectedSampleId(nextList[0].id);
-                            }
-                          }}
-                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                            isActive
-                              ? 'bg-zinc-800 text-amber-400 border border-amber-500/40'
-                              : 'text-zinc-400 hover:text-zinc-200 bg-zinc-900/60 border border-zinc-800/80'
+                          onClick={() => setSelectedBeerId(beer.id)}
+                          className={`w-full text-left p-4 transition-colors flex items-start justify-between gap-4 cursor-pointer ${
+                            isSelected
+                              ? 'bg-amber-600/10 border-l-4 border-l-amber-500'
+                              : 'hover:bg-zinc-900/80'
                           }`}
                         >
-                          {style}
+                          <div className="space-y-1 min-w-0">
+                            <div className="font-mono text-[11px] text-zinc-500 flex items-center gap-2">
+                              <span>{beer.indexNo}</span>
+                              <span>·</span>
+                              <span>{beer.date}</span>
+                              {beer.favorite && (
+                                <>
+                                  <span>·</span>
+                                  <span className="text-amber-400">★ Favoriet</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="font-display text-lg font-bold text-zinc-100 truncate">
+                              {beer.name}
+                            </div>
+                            <div className="text-xs text-zinc-400 font-mono">
+                              {beer.style} · {beer.abv.toFixed(1)}% ABV · {beer.serving} · {beer.location}
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <div className="font-mono text-xl font-bold text-amber-400 tabular-nums">
+                              {beer.score.toFixed(1)}
+                            </div>
+                            <div className="font-mono text-[10px] uppercase text-zinc-500">
+                              Rapportcijfer
+                            </div>
+                          </div>
                         </button>
                       );
                     })}
                   </div>
-                  <span className="text-xs text-zinc-400">
-                    Klik op een bierkaart links om rechts alle proefnotities en locaties te bekijken
-                  </span>
-                </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Links: Echte BeerCard weergaves uit de app */}
-                  <div className="lg:col-span-5 space-y-4">
-                    {filteredSamples.map((beer, idx) => {
-                      const isSelected = activeSample.id === beer.id;
-                      const lastSession = beer.sessions[0];
-                      const isFav = sampleFavorites[beer.id] ?? beer.favorite;
-                      return (
-                        <div
-                          key={beer.id}
-                          onClick={() => setSelectedSampleId(beer.id)}
-                          className={`group relative bg-zinc-900/90 border rounded-2xl p-5 transition-all cursor-pointer ${
-                            isSelected
-                              ? 'border-amber-500/80 ring-1 ring-amber-500/30'
-                              : 'border-zinc-800 hover:border-zinc-700'
-                          }`}
-                        >
-                          {/* Top Row: Rank, Stijl, ABV & Favoriet-hartje */}
-                          <div className="flex items-center justify-between gap-2 mb-3">
-                            <div className="flex items-center gap-2 text-xs text-zinc-300">
-                              <span className="font-mono tabular-nums font-bold text-amber-400">
-                                #{idx + 1}
-                              </span>
-                              <span aria-hidden="true">&middot;</span>
-                              <span className="font-semibold" style={{ color: beer.styleColor }}>
-                                {beer.style}
-                              </span>
-                              <span aria-hidden="true">&middot;</span>
-                              <span className="font-mono tabular-nums text-zinc-400">
-                                {beer.abv.toFixed(1)}% ABV
-                              </span>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSampleFavorites((prev) => ({
-                                  ...prev,
-                                  [beer.id]: !isFav,
-                                }));
-                              }}
-                              aria-label="Favoriet wisselen"
-                              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition-colors cursor-pointer"
-                            >
-                              <Heart
-                                className={`w-4 h-4 ${
-                                  isFav ? 'text-rose-500 fill-rose-500' : 'text-zinc-500'
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Middle Row: Biernaam, Brouwerij, Locatie & Foto */}
-                          <div className="flex items-start justify-between gap-3.5 mb-3">
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-bold text-lg text-zinc-100 group-hover:text-amber-300 transition-colors truncate">
-                                {beer.name}
-                              </h3>
-                              <p className="text-sm text-zinc-400 mb-2 truncate font-medium">
-                                {beer.brewery}
-                              </p>
-                              <div className="flex items-center gap-2 flex-wrap text-xs text-zinc-400">
-                                <span>
-                                  {beer.sessions.length === 1
-                                    ? '1x gedronken'
-                                    : `${beer.sessions.length}x gedronken`}
-                                </span>
-                                <span aria-hidden="true">&middot;</span>
-                                <span className="text-amber-300">
-                                  {lastSession.servingType === 'tap'
-                                    ? 'Van de tap'
-                                    : lastSession.servingType === 'fles'
-                                    ? 'Fles'
-                                    : 'Blik'}
-                                </span>
-                                <span aria-hidden="true">&middot;</span>
-                                <span className="inline-flex items-center gap-1 text-zinc-300 truncate max-w-[160px]">
-                                  <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
-                                  <span className="truncate">{lastSession.location}</span>
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="w-16 h-16 rounded-xl overflow-hidden border border-zinc-700/80 shrink-0 bg-zinc-950">
-                              <img
-                                src={beer.photoUrl}
-                                alt={beer.name}
-                                referrerPolicy="no-referrer"
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Proefnotitie */}
-                          <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed mb-4 italic bg-zinc-950/50 p-2.5 rounded-lg border border-zinc-800/60">
-                            &ldquo;{lastSession.notes}&rdquo;
-                          </p>
-
-                          {/* Bottom Row: Echte RatingBadge + Inchecken knop */}
-                          <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between gap-2">
-                            <RatingBadge rating={beer.avgScore} size="md" showLabel />
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs font-bold">
-                                <PlusCircle className="w-3.5 h-3.5" />
-                                <span>Inchecken</span>
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Rechts: Het echte BeerDetailModal venster uit de app */}
-                  <div className="lg:col-span-7 bg-zinc-900 border border-zinc-700/80 rounded-2xl p-6 sm:p-7 text-zinc-100 space-y-6">
-                    <div className="flex items-center justify-between pb-4 border-b border-zinc-800 text-xs text-zinc-400">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold" style={{ color: activeSample.styleColor }}>
-                          {activeSample.style}
-                        </span>
-                        <span aria-hidden="true">&middot;</span>
-                        <span className="font-mono tabular-nums text-zinc-300">
-                          {activeSample.abv.toFixed(1)}% ABV
-                        </span>
-                      </div>
-                      <span>Uitgebreide bierkaart</span>
+                  {/* Quick-write a beer entry into the demo logbook */}
+                  <form
+                    onSubmit={handleAddDemoBeer}
+                    className="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs uppercase tracking-wider text-amber-500">
+                        + Test het zelf: schrijf een biertje bij op dit proefblad
+                      </span>
+                      <span className="font-mono text-[11px] text-zinc-500">
+                        Locatie vooringevuld vanuit kroegentocht
+                      </span>
                     </div>
-
-                    {/* Hero title & RatingBadge lg */}
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                      <div className="flex items-start gap-4">
-                        <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border border-zinc-700 shrink-0 bg-zinc-950">
-                          <img
-                            src={activeSample.photoUrl}
-                            alt={activeSample.name}
-                            referrerPolicy="no-referrer"
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div>
-                          <h3 className="text-2xl sm:text-3xl font-extrabold text-zinc-100 tracking-tight">
-                            {activeSample.name}
-                          </h3>
-                          <div className="flex items-center gap-2 text-zinc-400 mt-1.5 text-sm font-medium">
-                            <Building2 className="w-4 h-4 text-amber-500" />
-                            <span>{activeSample.brewery}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs text-zinc-500 mt-1">
-                            <Clock className="w-3.5 h-3.5 text-zinc-600" />
-                            <span>
-                              {activeSample.sessions.length === 1
-                                ? '1x gedronken'
-                                : `${activeSample.sessions.length}x gedronken`}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="shrink-0 flex flex-col items-start sm:items-center">
-                        <RatingBadge rating={activeSample.avgScore} size="lg" showLabel />
-                        <span className="text-[10px] text-zinc-400 mt-1 font-medium">
-                          Gemiddelde score
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* De "Nog een keer gedronken?" knop uit BeerDetailModal */}
-                    <div>
-                      <button
-                        type="button"
-                        onClick={() => onOpenLogin('register')}
-                        className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-bold text-sm shadow-lg shadow-amber-500/15 transition-colors cursor-pointer"
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                      <input
+                        type="text"
+                        value={newBeerName}
+                        onChange={(e) => setNewBeerName(e.target.value)}
+                        placeholder="Naam van het bier (bijv. Westmalle Tripel)"
+                        className="sm:col-span-5 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                      />
+                      <select
+                        value={newBeerStyle}
+                        onChange={(e) => setNewBeerStyle(e.target.value)}
+                        className="sm:col-span-3 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-amber-500"
                       >
-                        <PlusCircle className="w-4 h-4 stroke-[2.5]" />
-                        <span>Nog een keer gedronken? Opnieuw ranken &amp; locatie toevoegen</span>
+                        <option value="Tripel">Tripel</option>
+                        <option value="Quadrupel">Quadrupel</option>
+                        <option value="Blond">Blond</option>
+                        <option value="Stout">Imperial Stout</option>
+                        <option value="IPA">IPA</option>
+                        <option value="Bock">Herfstbock</option>
+                      </select>
+                      <div className="sm:col-span-2 flex items-center gap-1.5 px-2.5 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs font-mono text-amber-400">
+                        <span>Cijfer:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          step="0.1"
+                          value={newBeerScore}
+                          onChange={(e) => setNewBeerScore(Number(e.target.value))}
+                          className="w-12 bg-transparent text-zinc-100 font-bold focus:outline-none tabular-nums"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="sm:col-span-2 px-3 py-2 bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-colors"
+                      >
+                        Noteer
                       </button>
                     </div>
+                  </form>
+                </div>
 
-                    {/* Proefgeschiedenis & Locaties lijst */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-amber-400" />
-                          Proefgeschiedenis &amp; Locaties ({activeSample.sessions.length})
+                {/* Right 5 columns: Detailed Index Card for Selected Beer */}
+                <div className="lg:col-span-5">
+                  <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-5 h-full flex flex-col justify-between">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                        <span className="font-mono text-xs text-zinc-400">
+                          STAMKAART · {activeBeer.indexNo}
+                        </span>
+                        <span className="font-mono text-xs text-amber-400">
+                          {activeBeer.serving}
+                        </span>
+                      </div>
+
+                      <div className="aspect-[16/10] overflow-hidden border border-zinc-800 bg-zinc-900 rounded-xl relative">
+                        <img
+                          src={activeBeer.photoUrl}
+                          alt={activeBeer.name}
+                          className="w-full h-full object-cover photo-analog"
+                        />
+                        <div className="absolute bottom-2 right-2 bg-zinc-950/90 border border-zinc-700 rounded-lg px-2.5 py-1 font-mono text-sm font-bold text-amber-400 tabular-nums">
+                          {activeBeer.score.toFixed(1)} / 10
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="font-display text-2xl font-bold text-zinc-100">
+                          {activeBeer.name}
                         </h4>
-                        <span className="text-[11px] text-zinc-500">Nieuwste eerst</span>
+                        <p className="text-xs font-mono text-zinc-400 mt-1">
+                          {activeBeer.brewery}
+                        </p>
                       </div>
 
-                      <div className="space-y-2.5">
-                        {activeSample.sessions.map((session) => (
-                          <div
-                            key={session.id}
-                            className="p-3.5 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-1.5"
-                          >
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <div className="flex items-center gap-2 flex-wrap text-xs">
-                                <RatingBadge rating={session.score} size="sm" />
-                                <span className="text-zinc-300 font-medium">
-                                  {session.servingType === 'tap'
-                                    ? 'Van de tap'
-                                    : session.servingType === 'fles'
-                                    ? 'Fles'
-                                    : 'Blik'}
-                                </span>
-                                <span aria-hidden="true" className="text-zinc-600">&middot;</span>
-                                <span className="inline-flex items-center gap-1 text-amber-300 font-medium">
-                                  <MapPin className="w-3 h-3 text-amber-400" />
-                                  {session.location}
-                                </span>
-                              </div>
-                              <span className="text-[11px] font-mono tabular-nums text-zinc-500">
-                                {session.date}
-                              </span>
-                            </div>
-
-                            <p className="text-xs text-zinc-300 italic pt-1 border-t border-zinc-800/60 leading-relaxed">
-                              &ldquo;{session.notes}&rdquo;
-                            </p>
-                          </div>
-                        ))}
+                      {/* Unboxed Metadata Line */}
+                      <div className="py-2.5 border-y border-zinc-800 font-mono text-xs text-zinc-300 tabular-nums">
+                        {activeBeer.style} · {activeBeer.abv.toFixed(1)}% ABV · {activeBeer.location}
                       </div>
+
+                      <div>
+                        <div className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 mb-1">
+                          Proefnotitie van de avond
+                        </div>
+                        <p className="text-sm text-zinc-300 leading-relaxed italic">
+                          &ldquo;{activeBeer.note}&rdquo;
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-zinc-800 flex items-center justify-between">
+                      <span className="text-xs text-zinc-500">
+                        In je eigen account kun je onbeperkt foto&apos;s en proefmomenten toevoegen.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleRegisterClick}
+                        className="text-xs font-bold text-amber-500 hover:text-amber-400 whitespace-nowrap ml-3 cursor-pointer"
+                      >
+                        Eigen lijst starten →
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* MODULE 2: ECHTE BIERGLAZENKAST WEERGAVE */}
-            {activePreviewModule === 'glazenkast' && (
-              <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-zinc-800">
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-100">
-                      Mijn Bierglazen Collectie
-                    </h3>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Houd bij welke glazen je thuis hebt staan en pas het aantal stuks aan met de + en &minus; knoppen.
-                    </p>
+            {/* WORKBENCH PANEL 2: KROEGENTOCHT PLANNER */}
+            {activeWorkbench === 'kroegentocht' && (
+              <div className="p-5 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <div className="lg:col-span-5 space-y-5">
+                  <div className="font-mono text-xs uppercase tracking-wider text-amber-500">
+                    Kroegentocht Generator &amp; Eigen Route
+                  </div>
+                  <h3 className="font-display text-2xl sm:text-3xl font-bold text-zinc-100">
+                    Vul een stad of dorp in en loop langs echte karakterkroegen.
+                  </h3>
+                  <p className="text-sm text-zinc-300 leading-relaxed">
+                    Geen zin om op een drukke vrijdagavond op straat te zoeken waar je een goed glas
+                    kunt drinken? Kies een plaatsnaam voor een kant-en-klare route, of stel je eigen
+                    kroegentocht samen en deel hem met je vrienden.
+                  </p>
+
+                  {/* City Switcher */}
+                  <div className="space-y-2">
+                    <label className="block font-mono text-xs uppercase text-zinc-400">
+                      Kies een voorbeeldstad:
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['Utrecht', 'Maastricht', 'Groningen'] as const).map((city) => (
+                        <button
+                          key={city}
+                          type="button"
+                          onClick={() => setSelectedCity(city)}
+                          className={`py-2.5 px-3 text-xs font-mono uppercase tracking-wider border rounded-xl text-center cursor-pointer transition-colors ${
+                            selectedCity === city
+                              ? 'bg-amber-600 text-zinc-950 border-amber-500 font-bold'
+                              : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:border-zinc-700'
+                          }`}
+                        >
+                          {city}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-6 text-sm">
-                    <div>
-                      <span className="text-zinc-400">Totaal in kast: </span>
-                      <strong className="font-mono tabular-nums text-amber-400">
-                        {sampleGlasses.reduce((acc, g) => acc + g.quantity, 0)} glazen
-                      </strong>
+                  <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl space-y-2 text-xs text-zinc-400">
+                    <div className="font-mono text-amber-400 uppercase">
+                      Slimme koppeling tijdens het lopen
                     </div>
-                    <div>
-                      <span className="text-zinc-400">Unieke modellen: </span>
-                      <strong className="font-mono tabular-nums text-zinc-100">
-                        {sampleGlasses.length}
-                      </strong>
-                    </div>
+                    <p className="leading-relaxed">
+                      Ben je gestart met een kroegentocht? Zodra je een nieuw biertje aanmeldt,
+                      staan de kroegen van je route al voor je klaar met één tik. Je hoeft dus nooit
+                      zelf het adres of de kroegnaam in te typen aan de bar.
+                    </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  {sampleGlasses.map((glass) => (
-                    <div
-                      key={glass.id}
-                      className="bg-zinc-950/80 border border-zinc-800/90 rounded-2xl p-5 flex flex-col justify-between space-y-4"
-                    >
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between text-xs text-zinc-400">
-                          <span className="text-amber-400 font-medium">{glass.glassType}</span>
-                          <span className="font-mono tabular-nums">{glass.volumeCl} cl</span>
-                        </div>
-
-                        <div>
-                          <h4 className="font-bold text-base text-zinc-100">{glass.name}</h4>
-                          <p className="text-xs text-zinc-400 font-medium">{glass.brand}</p>
-                        </div>
-
-                        <p className="text-xs text-zinc-400 italic leading-relaxed">
-                          &ldquo;{glass.notes}&rdquo;
+                <div className="lg:col-span-7">
+                  <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-800 pb-3">
+                      <div>
+                        <h4 className="font-display text-xl font-bold text-zinc-100">
+                          {DEMO_CITY_CRAWLS[selectedCity].title}
+                        </h4>
+                        <p className="font-mono text-xs text-zinc-400 mt-0.5">
+                          {DEMO_CITY_CRAWLS[selectedCity].subtitle}
                         </p>
                       </div>
+                      <span className="font-mono text-xs text-amber-500">
+                        Klik op een stop om af te vinken
+                      </span>
+                    </div>
 
-                      <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between">
-                        <span className="text-xs text-zinc-400">Aantal in bezit:</span>
-                        <div className="flex items-center gap-2">
+                    <div className="space-y-3">
+                      {(customStops[selectedCity] || []).map((stop) => (
+                        <div
+                          key={stop.order}
+                          className={`p-4 border rounded-xl transition-colors ${
+                            stop.checkedIn
+                              ? 'bg-amber-600/10 border-amber-600/50'
+                              : 'bg-zinc-900/60 border-zinc-800'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-3.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleStopCheckIn(selectedCity, stop.order, stop.pubName)
+                                }
+                                className={`w-7 h-7 shrink-0 font-mono text-xs font-bold flex items-center justify-center border rounded-lg cursor-pointer transition-colors ${
+                                  stop.checkedIn
+                                    ? 'bg-amber-500 text-zinc-950 border-amber-400'
+                                    : 'bg-zinc-950 text-zinc-400 border-zinc-700 hover:border-amber-500'
+                                }`}
+                              >
+                                {stop.checkedIn ? <Check className="w-4 h-4" /> : stop.order}
+                              </button>
+                              <div>
+                                <div className="font-display text-base font-bold text-zinc-100">
+                                  {stop.pubName}
+                                </div>
+                                <div className="font-mono text-xs text-zinc-400 mt-0.5">
+                                  {stop.address} · Aanrader: {stop.recommendedBeer}
+                                </div>
+                                <p className="text-xs text-zinc-300 mt-1.5">{stop.specialty}</p>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewBeerLocation(`${stop.pubName}, ${selectedCity}`);
+                                setActiveWorkbench('logboek');
+                              }}
+                              className="shrink-0 px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 rounded-lg font-mono text-[11px] text-amber-400 cursor-pointer"
+                            >
+                              + Bier hier loggen
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* WORKBENCH PANEL 3: GLAZENKAST */}
+            {activeWorkbench === 'glazenkast' && (
+              <div className="p-5 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                <div className="lg:col-span-5 space-y-4">
+                  <div className="font-mono text-xs uppercase tracking-wider text-amber-500">
+                    Vitrine &amp; Voorraad
+                  </div>
+                  <h3 className="font-display text-2xl sm:text-3xl font-bold text-zinc-100">
+                    Elk speciaalbier hoort in zijn eigen glas.
+                  </h3>
+                  <p className="text-sm text-zinc-300 leading-relaxed">
+                    Verzamel je brouwerijglazen? Houd in je persoonlijke glazenkast bij welke kelken,
+                    bokalen en tulpglazen je thuis op de plank hebt staan, inclusief eigen foto&apos;s
+                    en aantallen.
+                  </p>
+                </div>
+
+                <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {demoGlasses.map((glass) => (
+                    <div
+                      key={glass.id}
+                      className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 flex flex-col justify-between space-y-4"
+                    >
+                      <div>
+                        <div className="font-mono text-[11px] text-zinc-500 uppercase">
+                          {glass.type}
+                        </div>
+                        <div className="font-display text-base font-bold text-zinc-100 mt-1">
+                          {glass.name}
+                        </div>
+                        <div className="font-mono text-xs text-zinc-400 mt-0.5">
+                          {glass.brewery}
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-zinc-800 flex items-center justify-between">
+                        <span className="font-mono text-xs text-zinc-400">Aantal in kast:</span>
+                        <div className="flex items-center gap-2 font-mono">
                           <button
                             type="button"
-                            onClick={() => handleAdjustGlassQty(glass.id, -1)}
-                            className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-amber-500 flex items-center justify-center text-zinc-200 cursor-pointer"
-                            aria-label="Minder"
+                            onClick={() =>
+                              setDemoGlasses((prev) =>
+                                prev.map((g) =>
+                                  g.id === glass.id ? { ...g, count: Math.max(0, g.count - 1) } : g
+                                )
+                              )
+                            }
+                            className="w-6 h-6 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-300 hover:border-amber-500 cursor-pointer"
                           >
-                            <Minus className="w-3.5 h-3.5" />
+                            -
                           </button>
-                          <span className="w-7 text-center font-mono tabular-nums font-bold text-sm text-amber-400">
-                            {glass.quantity}x
+                          <span className="text-sm font-bold text-amber-400 w-5 text-center tabular-nums">
+                            {glass.count}
                           </span>
                           <button
                             type="button"
-                            onClick={() => handleAdjustGlassQty(glass.id, 1)}
-                            className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-amber-500 flex items-center justify-center text-zinc-200 cursor-pointer"
-                            aria-label="Meer"
+                            onClick={() =>
+                              setDemoGlasses((prev) =>
+                                prev.map((g) =>
+                                  g.id === glass.id ? { ...g, count: g.count + 1 } : g
+                                )
+                              )
+                            }
+                            className="w-6 h-6 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-300 hover:border-amber-500 cursor-pointer"
                           >
-                            <Plus className="w-3.5 h-3.5" />
+                            +
                           </button>
                         </div>
                       </div>
@@ -887,522 +1028,272 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             )}
 
-            {/* MODULE 3: ECHTE VRIENDEN & QR-CODE WEERGAVE */}
-            {activePreviewModule === 'vrienden' && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Links: Uitnodigingslink & QR-Scanner kaart */}
-                <div className="lg:col-span-5 bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6 space-y-5">
-                  <div className="space-y-1">
-                    <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
-                      <QrCode className="w-5 h-5 text-amber-400" />
-                      <span>Vrienden Uitnodigen via Link of QR</span>
-                    </h3>
-                    <p className="text-xs text-zinc-400 leading-relaxed">
-                      Deel je persoonlijke uitnodigingslink via WhatsApp of laat een vriend aan tafel jouw QR-code scannen met zijn telefooncamera.
-                    </p>
+            {/* WORKBENCH PANEL 4: STAMTAFEL & VRIENDEN */}
+            {activeWorkbench === 'stamtafel' && (
+              <div className="p-5 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                <div className="lg:col-span-6 space-y-4">
+                  <div className="font-mono text-xs uppercase tracking-wider text-amber-500">
+                    Koppelen via QR of Uitnodigingslink
                   </div>
-
-                  <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-2">
-                    <code className="text-xs font-mono text-amber-300 truncate">
-                      https://cervisium.nl/?invite=vriend
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCopiedDemoLink(true);
-                        setTimeout(() => setCopiedDemoLink(false), 2500);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs shrink-0 cursor-pointer"
-                    >
-                      {copiedDemoLink ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Gekopieerd</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Kopieer</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <div className="p-3.5 rounded-xl bg-zinc-950/70 border border-zinc-800 text-center space-y-1">
-                      <QrCode className="w-6 h-6 text-amber-400 mx-auto" />
-                      <div className="text-xs font-bold text-zinc-200">Mijn QR-Code</div>
-                      <div className="text-[11px] text-zinc-500">Laat vriend scannen</div>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-zinc-950/70 border border-zinc-800 text-center space-y-1">
-                      <Camera className="w-6 h-6 text-emerald-400 mx-auto" />
-                      <div className="text-xs font-bold text-zinc-200">Scan QR-Code</div>
-                      <div className="text-[11px] text-zinc-500">Met je camera</div>
-                    </div>
-                  </div>
+                  <h3 className="font-display text-2xl sm:text-3xl font-bold text-zinc-100">
+                    Geen openbaar sociaal netwerk. Alleen jouw eigen stamtafel.
+                  </h3>
+                  <p className="text-sm text-zinc-300 leading-relaxed">
+                    Je kunt bij ons niemand zomaar op e-mailadres toevoegen. Je wordt pas vrienden
+                    als je aan tafel elkaars persoonlijke QR-code scant of een uitnodigingslink
+                    deelt. Beiden krijgen direct een bevestiging zodra jullie gekoppeld zijn.
+                  </p>
+                  <p className="text-xs font-mono text-zinc-400 border-l-2 border-amber-500 pl-3">
+                    Kijk je in de bierlijst van een vriend? Dan staat het logboek automatisch in een
+                    rustige <strong className="text-zinc-200">alleen-lezen weergave</strong> zonder
+                    bewerkknoppen.
+                  </p>
                 </div>
 
-                {/* Rechts: Gekoppelde Vrienden */}
-                <div className="lg:col-span-7 bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6 space-y-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-zinc-100">
-                      Jouw Biervrienden (2)
-                    </h3>
-                    <span className="text-xs text-amber-400 font-medium">
-                      Samen elkaars favorieten ontdekken
+                <div className="lg:col-span-6 bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <QrCode className="w-5 h-5 text-amber-500" />
+                      <span className="font-display text-base font-bold text-zinc-100">
+                        Voorbeeld Vrienden-koppeling
+                      </span>
+                    </div>
+                    <span className="font-mono text-[11px] text-emerald-400">
+                      ✓ Bevestigd aan beide kanten
                     </span>
                   </div>
 
-                  {viewingDemoFriend && (
-                    <div className="bg-zinc-950 border border-amber-500/40 text-amber-300 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-amber-400 shrink-0" />
-                        <span>
-                          Je bekijkt nu de biercollectie en proefnotities van <strong>{viewingDemoFriend}</strong>
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setViewingDemoFriend(null)}
-                        className="text-amber-400 hover:underline font-bold whitespace-nowrap shrink-0 cursor-pointer"
-                      >
-                        Sluiten
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {[
-                      {
-                        name: 'Thomas de Vries',
-                        beers: 48,
-                        tastings: 64,
-                        glasses: 11,
-                        favStyle: 'Quadrupel & Tripel',
-                      },
-                      {
-                        name: 'Sanne Jansen',
-                        beers: 31,
-                        tastings: 39,
-                        glasses: 7,
-                        favStyle: 'NEIPA & Saison',
-                      },
-                    ].map((friend) => (
-                      <div
-                        key={friend.name}
-                        className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800/90 flex flex-col justify-between space-y-4"
-                      >
-                        <div>
-                          <div className="font-bold text-sm text-zinc-100">{friend.name}</div>
-                          <div className="text-xs text-zinc-400 mt-1 font-mono tabular-nums">
-                            {friend.beers} bieren &middot; {friend.tastings} proeverijen &middot; {friend.glasses} glazen
-                          </div>
-                          <div className="text-[11px] text-zinc-500 mt-1">
-                            Favoriete stijlen: {friend.favStyle}
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setViewingDemoFriend(friend.name)}
-                          className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-zinc-950 border border-amber-500/30 text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Bekijk Bierlijst</span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* MODULE 4: ECHTE AVOND BIERTELLER & KROEG-ACTIES WEERGAVE */}
-            {activePreviewModule === 'bierteller' && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Links: Interactieve Bier Counter preview */}
-                <div className="lg:col-span-6 bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6 space-y-5">
-                  <div className="flex items-center justify-between">
+                  <div className="p-3.5 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-between">
                     <div>
-                      <h3 className="text-lg font-bold text-zinc-100">
-                        Avond Bierteller &amp; Water-Tracker
-                      </h3>
-                      <p className="text-xs text-zinc-400">
-                        Houd tijdens een avond op het terras je drankjes, uitgaven en glazen water bij.
-                      </p>
+                      <div className="text-sm font-bold text-zinc-100">Jeroen van der Berg</div>
+                      <div className="font-mono text-xs text-zinc-400">
+                        68 bieren geproefd · Topfavoriet: Rochefort 10 (9.6)
+                      </div>
                     </div>
-                    <span className="font-mono tabular-nums text-lg font-bold text-amber-400">
-                      &euro; {(demoBeersDrunk * 5.5).toFixed(2).replace('.', ',')}
-                    </span>
+                    <span className="font-mono text-xs text-amber-400">Alleen-lezen modus</span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
-                      <div className="flex items-center justify-between text-xs text-zinc-400">
-                        <span>Gedronken bieren</span>
-                        <BeerIcon className="w-4 h-4 text-amber-400" />
-                      </div>
-                      <div className="text-3xl font-extrabold font-mono tabular-nums text-zinc-100">
-                        {demoBeersDrunk}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDemoBeersDrunk((c) => Math.max(0, c - 1))}
-                          className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-200 cursor-pointer"
-                        >
-                          &minus;1
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDemoBeersDrunk((c) => c + 1)}
-                          className="flex-1 py-1.5 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold cursor-pointer"
-                        >
-                          +1 Bier
-                        </button>
+                  <div className="p-3.5 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-zinc-100">Sanne de Vries</div>
+                      <div className="font-mono text-xs text-zinc-400">
+                        44 bieren geproefd · Topfavoriet: Karmeliet Tripel (9.2)
                       </div>
                     </div>
-
-                    <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
-                      <div className="flex items-center justify-between text-xs text-zinc-400">
-                        <span>Glazen water</span>
-                        <Droplets className="w-4 h-4 text-sky-400" />
-                      </div>
-                      <div className="text-3xl font-extrabold font-mono tabular-nums text-sky-400">
-                        {demoWaterGlasses}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDemoWaterGlasses((w) => Math.max(0, w - 1))}
-                          className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-200 cursor-pointer"
-                        >
-                          &minus;1
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDemoWaterGlasses((w) => w + 1)}
-                          className="flex-1 py-1.5 px-3 rounded-lg bg-sky-500 hover:bg-sky-400 text-zinc-950 text-xs font-bold cursor-pointer"
-                        >
-                          +1 Water
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Rechts: Landelijke Bier & Glas-Acties Finder preview */}
-                <div className="lg:col-span-6 bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6 space-y-4 flex flex-col justify-between">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs text-emerald-400 font-medium">
-                      <span>Onderdeel: Bier &amp; Kroeg Acties</span>
-                      <span>Door heel Nederland</span>
-                    </div>
-                    <h3 className="text-lg font-bold text-zinc-100">
-                      Ontdek waar je een gratis speciaalbierglas of leuke actie krijgt
-                    </h3>
-                    <p className="text-xs text-zinc-400 leading-relaxed">
-                      Bekijk lopende acties van brouwerijen en biercafés (zoals een gratis glas bij twee bieren van de tap) of deel zelf een mooie actie die je bent tegengekomen.
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1.5">
-                    <div className="text-xs font-bold text-emerald-400">
-                      Voorbeeld Actie &middot; La Chouffe &amp; Duvel
-                    </div>
-                    <div className="text-sm font-bold text-zinc-100">
-                      Gratis origineel tulpglas bij bestelling van 2 speciaalbieren van het vat
-                    </div>
-                    <div className="text-xs text-zinc-400">
-                      Bij deelnemende speciaalbiercafés &middot; Bekijk direct waar de actie geldt
-                    </div>
+                    <span className="font-mono text-xs text-amber-400">Alleen-lezen modus</span>
                   </div>
                 </div>
               </div>
             )}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* Section 3: Core Capabilities (Asymmetric Bento Grid with Editorial Numbering & Photography) */}
-        <section
-          id="wat-is-cervisium"
-          className="border-t border-zinc-800/80 bg-zinc-950 py-16 sm:py-20"
-        >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-            <div className="max-w-2xl space-y-3">
-              <p className="text-xs font-medium text-amber-400 tracking-wide">
-                Alles op één plek
-              </p>
-              <h2
-                className="text-2xl sm:text-4xl font-bold text-zinc-100 tracking-tight font-['Playfair_Display',serif]"
-                style={{ textWrap: 'balance' }}
-              >
-                Gemaakt voor de liefhebber die meer wil onthouden dan alleen een naam.
+      {/* ===================================================================
+          ASYMMETRIC EDITORIAL CHAPTERS (Replaces cliché 3-column check cards)
+         =================================================================== */}
+      <section id="kroegentocht" className="py-16 sm:py-24 border-b border-zinc-800/90">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-24">
+          {/* Chapter 02: Kroegentocht & Locatie Snelkeuze (Asymmetric 5 / 7 split) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+            <div className="lg:col-span-5 space-y-5">
+              <div className="font-mono text-xs uppercase tracking-widest text-amber-500">
+                02 / Op pad door stad of dorp
+              </div>
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-zinc-100 leading-tight">
+                Stippel een kroegentocht uit en log je bieren zonder getyp aan de bar.
               </h2>
-              <p className="text-sm sm:text-base text-zinc-400 leading-relaxed">
-                Geen drukke tijdlijnen of reclames, maar een persoonlijk overzicht voor je geproefde bieren, favoriete terrassen, bierglazen en avondjes in de kroeg.
+              <p className="text-base text-zinc-300 leading-relaxed">
+                Vul een willekeurige stad of dorp in en Cervisium stelt een wandelroute samen langs
+                goede biercafés en lokale brouwerijen. Liever zelf de kroegen kiezen? Bouw je eigen
+                route, sla hem op voor later en deel hem met één link met je vriendengroep.
               </p>
+              <div className="pt-2 space-y-2 font-mono text-xs text-zinc-400 border-t border-zinc-800">
+                <div>— Route op maat per stad of dorp met specialiteiten per café</div>
+                <div>— Directe Google Maps wandelroute van kroeg naar kroeg</div>
+                <div>— Snelknoppen bij het bier aanmelden zodra je tocht gestart is</div>
+              </div>
             </div>
 
-            {/* Asymmetric Bento Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* 01. Marquee capability (col-span-7) */}
-              <div className="lg:col-span-7 rounded-2xl border border-zinc-800/90 bg-zinc-900/70 p-6 sm:p-8 flex flex-col justify-between space-y-6">
-                <div className="space-y-3">
-                  <span className="text-xs font-mono tabular-nums text-amber-400 font-semibold">
-                    01. Proefboek &amp; Herhaalproeverijen
+            <div className="lg:col-span-7 bg-zinc-900 border border-zinc-800 p-6 sm:p-8 stamp-border space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-zinc-800">
+                <div>
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-amber-500">
+                    ACTIEVE ROUTE ONDERWEG
                   </span>
-                  <h3 className="text-xl sm:text-2xl font-bold text-zinc-100 tracking-tight">
-                    Leg elk bier vast met een eigen foto, locatie en proefnotitie
+                  <h3 className="font-display text-2xl font-bold text-zinc-100">
+                    Hoe de locatie-snelkeuze werkt tijdens je tocht
                   </h3>
-                  <p className="text-sm text-zinc-300 leading-relaxed">
-                    Voeg op het terras direct het bier toe dat voor je staat. Noteer de brouwerij, het alcoholpercentage, de stijl en of je hem van de tap, uit fles of uit blik drinkt. Drink je hetzelfde bier later nog een keer op een andere plek? Klik op <em>&ldquo;Nog een keer gedronken&rdquo;</em> om een nieuw proefmoment toe te voegen.
-                  </p>
                 </div>
-
-                <div className="pt-4 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-zinc-300">
-                  <div>
-                    <div className="font-semibold text-zinc-100">Schenkwijze &amp; Plek</div>
-                    <div className="text-zinc-400 mt-0.5">Tap &middot; Fles &middot; Blik &middot; Café of thuis</div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-zinc-100">Eigen Foto Maken</div>
-                    <div className="text-zinc-400 mt-0.5">Direct met je telefooncamera vastleggen</div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-zinc-100">Mooie Uitsnede</div>
-                    <div className="text-zinc-400 mt-0.5">Schuif en zoom je foto precies goed op de kaart</div>
-                  </div>
-                </div>
+                <Compass className="w-6 h-6 text-amber-500" />
               </div>
 
-              {/* 02. Secondary capability (col-span-5) */}
-              <div className="lg:col-span-5 rounded-2xl border border-zinc-800/90 bg-zinc-900/70 p-6 sm:p-8 flex flex-col justify-between space-y-6">
-                <div className="space-y-3">
-                  <span className="text-xs font-mono tabular-nums text-amber-400 font-semibold">
-                    02. Eigen Bierstijlen &amp; Persoonlijke Top 10
-                  </span>
-                  <h3 className="text-xl font-bold text-zinc-100 tracking-tight">
-                    Jouw eigen categorieën, kleuren en ranglijsten
-                  </h3>
-                  <p className="text-sm text-zinc-300 leading-relaxed">
-                    Deel je collectie in zoals jij dat fijn vindt. Kies uit bekende bierstijlen (zoals Tripel, Quadrupel, Blond, NEIPA, Weizen en Imperial Stout) of voeg je eigen categorieën met een eigen kleur toe.
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2">
+                  <div className="font-mono text-xs text-amber-400">STAP 1 · START DE TOCHT</div>
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    Je drukt op &ldquo;Start Kroegentocht&rdquo;. Bovenin je scherm verschijnt een
+                    compacte routebalk met je huidige stop, bijvoorbeeld{' '}
+                    <strong className="text-zinc-100">Stop 2/4: Kafé België</strong>.
                   </p>
                 </div>
-
-                <div className="pt-4 border-t border-zinc-800/80 space-y-2.5 text-xs">
-                  <div className="flex items-center justify-between text-zinc-300">
-                    <span>Jouw beste bieren op een rij</span>
-                    <span className="text-amber-400 font-medium">Top 10 per stijl</span>
-                  </div>
-                  <div className="flex items-center justify-between text-zinc-300">
-                    <span>Zoek op naam, brouwerij of favoriet</span>
-                    <span className="text-zinc-400">Snel terugvinden</span>
-                  </div>
-                  <div className="flex items-center justify-between text-zinc-300">
-                    <span>Overzichtelijk dashboard</span>
-                    <span className="text-zinc-400">Al je aantallen &amp; scores</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 03. Glassware & Extras (col-span-6 with photography) */}
-              <div
-                id="glazen-en-tools"
-                className="lg:col-span-6 rounded-2xl border border-zinc-800/90 bg-zinc-900/70 overflow-hidden flex flex-col justify-between"
-              >
-                <div className="relative h-56 sm:h-64 w-full bg-zinc-950 overflow-hidden">
-                  {!glassImgFailed ? (
-                    <img
-                      src={glasswareImg}
-                      alt="Verzameling van Belgische kelkglazen en tulpglazen op een donkere plank"
-                      referrerPolicy="no-referrer"
-                      onError={() => setGlassImgFailed(true)}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-zinc-900 to-zinc-950 flex items-center justify-center">
-                      <Wine className="w-12 h-12 text-amber-500/30" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/20 to-transparent" />
-                </div>
-
-                <div className="p-6 sm:p-8 space-y-3 flex-1 flex flex-col justify-between">
-                  <div className="space-y-2.5">
-                    <span className="text-xs font-mono tabular-nums text-amber-400 font-semibold">
-                      03. Bierglazenkast &amp; Kroeg-Acties
-                    </span>
-                    <h3 className="text-xl font-bold text-zinc-100 tracking-tight">
-                      Houd je verzameling speciaalbierglazen bij
-                    </h3>
-                    <p className="text-sm text-zinc-300 leading-relaxed">
-                      Spaar je ook mooie brouwerijglazen? Zet je kelken, tulpglazen en pullen met foto en aantal in je digitale glazenkast. Zo weet je op een bierfestival of in de winkel altijd of je een glas al thuis hebt staan.
-                    </p>
-                  </div>
-                  <p className="text-xs text-zinc-400 pt-3 border-t border-zinc-800/80">
-                    Inclusief handige avond-bierteller &middot; Water-herinnering &middot; Overzicht van leuke glas-acties
-                  </p>
-                </div>
-              </div>
-
-              {/* 04. Friends & QR Code (col-span-6 with photography) */}
-              <div
-                id="vrienden-en-samen"
-                className="lg:col-span-6 rounded-2xl border border-zinc-800/90 bg-zinc-900/70 overflow-hidden flex flex-col justify-between"
-              >
-                <div className="relative h-56 sm:h-64 w-full bg-zinc-950 overflow-hidden">
-                  {!friendsImgFailed ? (
-                    <img
-                      src={friendsFlightImg}
-                      alt="Houten proefplank met vier verschillende speciaalbieren in een gezellig biercafé"
-                      referrerPolicy="no-referrer"
-                      onError={() => setFriendsImgFailed(true)}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-zinc-900 to-zinc-950 flex items-center justify-center">
-                      <QrCode className="w-12 h-12 text-amber-500/30" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/20 to-transparent" />
-                </div>
-
-                <div className="p-6 sm:p-8 space-y-3 flex-1 flex flex-col justify-between">
-                  <div className="space-y-2.5">
-                    <span className="text-xs font-mono tabular-nums text-amber-400 font-semibold">
-                      04. Vrienden &amp; QR-Code Scanner
-                    </span>
-                    <h3 className="text-xl font-bold text-zinc-100 tracking-tight">
-                      Bekijk de bierlijst en aanraders van je vrienden
-                    </h3>
-                    <p className="text-sm text-zinc-300 leading-relaxed">
-                      Zit je samen op het terras en ben je benieuwd welke bieren je vrienden een 9 of hoger hebben gegeven? Scan elkaars QR-code of stuur een uitnodigingslink en blader direct door elkaars gedronken bieren en proefnotities.
-                    </p>
-                  </div>
-                  <p className="text-xs text-zinc-400 pt-3 border-t border-zinc-800/80">
-                    Samen nieuwe bieren ontdekken &middot; Alleen jouw vrienden kunnen jouw lijst bekijken
+                <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2">
+                  <div className="font-mono text-xs text-amber-400">STAP 2 · ÉÉN TIK BIJ AANMELDEN</div>
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    Bestel je een biertje? In het aanmeldscherm staan alle kroegen uit je route al
+                    als snelknop klaar. Eén tik en de kroegnaam + plaatsnaam staan ingevuld.
                   </p>
                 </div>
               </div>
             </div>
           </div>
-        </section>
 
-        {/* Section 4: Everyday Use & Conversion */}
-        <section className="py-16 sm:py-20 border-t border-zinc-800/80 bg-zinc-900/20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-            <div className="max-w-2xl space-y-2">
-              <p className="text-xs font-medium text-amber-400 tracking-wide">
-                Makkelijk in gebruik
-              </p>
-              <h2 className="text-2xl sm:text-3xl font-bold text-zinc-100 tracking-tight font-['Playfair_Display',serif]">
-                Ideaal voor op het terras, bij een proeverij of thuis
+          {/* Chapter 03: Glazenkast & Stamtafel (Asymmetric 7 / 5 split with documentary photos) */}
+          <div id="glazenkast" className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start pt-12 border-t border-zinc-800">
+            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 stamp-border">
+                <div className="aspect-[4/3] overflow-hidden rounded-xl bg-zinc-950">
+                  <img
+                    src={featureGlasswareImg}
+                    alt="Collectie speciaalbierglazen op een houten plank"
+                    className="w-full h-full object-cover photo-analog"
+                  />
+                </div>
+                <div className="pt-3 px-1">
+                  <div className="font-mono text-[11px] text-amber-500 uppercase">
+                    DE GLAZENKAST
+                  </div>
+                  <h3 className="font-display text-lg font-bold text-zinc-100 mt-0.5">
+                    Weet precies welke glazen je thuis hebt staan.
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                    Van gegraveerde Duvel-glazen tot zeldzame trappistenkelken: fotografeer je eigen
+                    glazen en houd bij waar een kroeg een glas-actie heeft.
+                  </p>
+                </div>
+              </div>
+
+              <div id="stamtafel" className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 stamp-border sm:mt-10">
+                <div className="aspect-[4/3] overflow-hidden rounded-xl bg-zinc-950">
+                  <img
+                    src={featureFriendsImg}
+                    alt="Vrienden proosten met speciaalbier aan een houten tafel"
+                    className="w-full h-full object-cover photo-analog"
+                  />
+                </div>
+                <div className="pt-3 px-1">
+                  <div className="font-mono text-[11px] text-amber-500 uppercase">
+                    AAN DE STAMTAFEL
+                  </div>
+                  <h3 className="font-display text-lg font-bold text-zinc-100 mt-0.5">
+                    Samen proeven en eerlijk vergelijken.
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                    Scan elkaars QR-code op een bieravond. Bekijk de toplijst van je maten zonder
+                    dat iemand per ongeluk iets in jouw lijst kan aanpassen.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-5 space-y-6 lg:pt-6">
+              <div className="font-mono text-xs uppercase tracking-widest text-amber-500">
+                03 / Waarom wij dit zo gebouwd hebben
+              </div>
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-zinc-100 leading-tight">
+                Gemaakt voor liefhebbers, niet voor dataverkopers.
               </h2>
-            </div>
+              <p className="text-base text-zinc-300 leading-relaxed">
+                De meeste bier-apps zitten vol met drukke badges, reclames en ongevraagde meldingen.
+                Cervisium houdt het bewust rustig en overzichtelijk:
+              </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="space-y-3">
-                <div className="inline-flex items-center gap-2 text-sm font-bold text-zinc-100">
-                  <Camera className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Leg je bier direct vast met een foto</span>
+              <dl className="space-y-4 border-t border-zinc-800 pt-4 text-sm">
+                <div className="border-b border-zinc-800 pb-4">
+                  <dt className="font-display font-bold text-zinc-100">
+                    Eigen categorieën &amp; stijlen
+                  </dt>
+                  <dd className="text-zinc-400 text-xs mt-1 leading-relaxed">
+                    Deel je bieren in zoals jij dat wilt: op stijl (Tripel, Quadrupel, Bock, IPA)
+                    of maak je eigen lijsten voor bijvoorbeeld je vakantie of bieravond.
+                  </dd>
                 </div>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Maak met je telefoon direct een foto van het glas of het etiket dat voor je staat, of kies een eerdere foto uit je fotoboek.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="inline-flex items-center gap-2 text-sm font-bold text-zinc-100">
-                  <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Nooit meer vergeten wat je lekker vond</span>
+                <div className="border-b border-zinc-800 pb-4">
+                  <dt className="font-display font-bold text-zinc-100">
+                    Meerdere proefmomenten per bier
+                  </dt>
+                  <dd className="text-zinc-400 text-xs mt-1 leading-relaxed">
+                    Smaakt een bier van de tap in Antwerpen anders dan uit fles thuis op de bank?
+                    Voeg per bier meerdere proeverijen toe; je gemiddelde cijfer rekent zichzelf uit.
+                  </dd>
                 </div>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Sta je voor het schap bij de slijterij of kijk je op de bierkaart in een café? Zoek snel op of je een bier al eerder hebt geproefd en welk cijfer je toen gaf.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="inline-flex items-center gap-2 text-sm font-bold text-zinc-100">
-                  <Users className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Deel je passie met je biervrienden</span>
+                <div>
+                  <dt className="font-display font-bold text-zinc-100">
+                    Bierteller voor op het terras
+                  </dt>
+                  <dd className="text-zinc-400 text-xs mt-1 leading-relaxed">
+                    Houd tijdens een avond met één knop de rekening en de rondjes bij, inclusief een
+                    nuchtere indicatie wanneer je weer veilig naar huis kunt.
+                  </dd>
                 </div>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Koppel eenvoudig met vrienden om inspiratie op te doen uit elkaars collecties, hoogste scores en glazenkasten.
-                </p>
-              </div>
-            </div>
-
-            {/* Final Conversion Banner */}
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-8 sm:p-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div className="space-y-2 max-w-xl">
-                <h3 className="text-xl sm:text-2xl font-bold text-zinc-100 font-['Playfair_Display',serif]">
-                  Klaar om je eerste speciaalbier toe te voegen?
-                </h3>
-                <p className="text-sm text-zinc-300 leading-relaxed">
-                  Log in op je bestaande account of maak gratis een eigen account aan met je e-mailadres of Google.
-                </p>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onOpenLogin('register')}
-                  className="px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  Gratis account aanmaken
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenLogin('login')}
-                  className="px-6 py-3.5 rounded-xl border border-zinc-700 hover:border-zinc-600 bg-zinc-950 text-zinc-200 hover:text-white font-semibold text-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  Inloggen op mijn account
-                </button>
-              </div>
+              </dl>
             </div>
           </div>
-        </section>
-      </main>
+        </div>
+      </section>
 
-      {/* Quiet Footer */}
-      <footer className="border-t border-zinc-800/80 bg-zinc-950 py-8 text-xs text-zinc-500">
+      {/* ===================================================================
+          CLOSING EDITORIAL CALL TO ACTION
+         =================================================================== */}
+      <section className="py-16 sm:py-24 bg-zinc-900/50">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-8 sm:p-12 stamp-border grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            <div className="lg:col-span-8 space-y-3">
+              <div className="font-mono text-xs uppercase tracking-widest text-amber-500">
+                Klaar voor het volgende glas?
+              </div>
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-zinc-100">
+                Leg je eerste proefnotitie vast in minder dan een halve minuut.
+              </h2>
+              <p className="text-sm text-zinc-300 leading-relaxed max-w-xl">
+                Maak gratis je eigen logboek aan of log in om verder te gaan waar je gebleven was.
+                Werkt direct op je telefoon aan de bar én thuis op je computer.
+              </p>
+            </div>
+
+            <div className="lg:col-span-4 flex flex-col sm:flex-row lg:flex-col gap-3">
+              <button
+                type="button"
+                onClick={handleRegisterClick}
+                className="w-full py-3.5 px-5 bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold text-xs uppercase tracking-wider text-center rounded-xl cursor-pointer stamp-border"
+              >
+                Nieuw logboek openen
+              </button>
+              <button
+                type="button"
+                onClick={handleLoginClick}
+                className="w-full py-3.5 px-5 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 font-semibold text-xs uppercase tracking-wider text-center rounded-xl cursor-pointer"
+              >
+                Inloggen op bestaand account
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ===================================================================
+          FOOTER (No decorative pulsing dots, clean colophon)
+         =================================================================== */}
+      <footer className="border-t border-zinc-800 bg-zinc-950 py-8 text-xs text-zinc-500 font-mono">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              translate="no"
-              data-no-translate="true"
-              className="notranslate font-bold text-zinc-300 font-['Playfair_Display',serif]"
-            >
-              Cervisium
-            </span>
-            <span aria-hidden="true">&middot;</span>
-            <span>Jouw persoonlijke speciaalbier &amp; proefnotities boekje</span>
-            <span
-              translate="no"
-              data-no-translate="true"
-              className="notranslate inline-flex items-center px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400"
-              title={versionDate ? `Laatst bijgewerkt op ${versionDate}` : 'Huidige applicatieversie'}
-            >
-              v{appVersion}
-              {versionDate ? ` (${versionDate})` : ''}
-            </span>
+          <div>
+            <span translate="no" data-no-translate="true" className="notranslate text-zinc-300 font-bold">
+              CERVISIUM
+            </span>{' '}
+            · PERSOONLIJK BIERLOGBOEK &amp; KROEGENTOCHT PLANNER
           </div>
-
-          <div className="flex items-center gap-6">
-            <a href="#app-onderdelen" className="hover:text-zinc-300 transition-colors">
-              App Voorbeelden
-            </a>
-            <a href="#wat-is-cervisium" className="hover:text-zinc-300 transition-colors">
-              Wat kun je doen?
-            </a>
-            <button
-              type="button"
-              onClick={() => onOpenLogin('login')}
-              className="text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
-            >
-              Inloggen &rarr;
-            </button>
+          <div className="tabular-nums">
+            UITGAVE v{appVersion}{versionDate ? ` · ${versionDate}` : ''} · ALLE RECHTEN VOORBEHOUDEN
           </div>
         </div>
       </footer>

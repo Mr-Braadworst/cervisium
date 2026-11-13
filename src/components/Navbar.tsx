@@ -60,7 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const showExtrasTab = settings?.showExtrasTab ?? true;
 
   return (
-    <header className="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800">
+    <header className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur-md border-b border-zinc-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20 gap-2">
           {/* Logo */}
@@ -79,13 +79,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span
                   translate="no"
                   data-no-translate="true"
-                  className="notranslate font-extrabold text-lg sm:text-xl tracking-tight text-zinc-100 group-hover:text-amber-400 transition-colors"
+                  className="notranslate font-display font-bold text-xl sm:text-2xl tracking-tight text-zinc-100 group-hover:text-amber-400 transition-colors"
                 >
                   Cervisium
                 </span>
               </div>
-              <p className="text-[11px] text-zinc-400 hidden sm:block">
-                Persoonlijke Bier Collectie
+              <p className="text-[10px] font-mono uppercase tracking-widest text-amber-500 hidden sm:block">
+                Brouwersdagboek
               </p>
             </div>
           </div>
@@ -94,30 +94,30 @@ export const Navbar: React.FC<NavbarProps> = ({
           <nav className="hidden md:flex items-center gap-1 bg-zinc-900/90 p-1.5 rounded-2xl border border-zinc-800">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                 activeTab === 'dashboard'
-                  ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-600 text-zinc-950 shadow-md shadow-amber-600/20'
                   : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60'
               }`}
             >
-              <LayoutDashboard className="w-4 h-4" />
-              Dashboard
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              Overzicht
             </button>
 
             <button
               onClick={() => setActiveTab('list')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                 activeTab === 'list'
-                  ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-600 text-zinc-950 shadow-md shadow-amber-600/20'
                   : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60'
               }`}
             >
-              <BeerIcon className="w-4 h-4" />
+              <BeerIcon className="w-3.5 h-3.5" />
               Mijn Bieren
               {showNavCollectionCounts && beerCount > 0 && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                    activeTab === 'list' ? 'bg-zinc-950 text-amber-300' : 'bg-zinc-800 text-zinc-400'
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full tabular-nums ${
+                    activeTab === 'list' ? 'bg-zinc-950/20 text-zinc-950' : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
                   {beerCount}
@@ -127,38 +127,38 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => setActiveTab('top')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                 activeTab === 'top'
-                  ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-600 text-zinc-950 shadow-md shadow-amber-600/20'
                   : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60'
               }`}
             >
-              <Trophy className="w-4 h-4" />
-              Top Bieren
+              <Trophy className="w-3.5 h-3.5" />
+              Toplijst
             </button>
 
             <button
               onClick={() => setActiveTab('categories')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                 activeTab === 'categories'
-                  ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-600 text-zinc-950 shadow-md shadow-amber-600/20'
                   : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60'
               }`}
             >
-              <Tag className="w-4 h-4" />
+              <Tag className="w-3.5 h-3.5" />
               Categorieën
             </button>
 
             <button
               onClick={() => setActiveTab('glasses')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                 activeTab === 'glasses'
-                  ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-600 text-zinc-950 shadow-md shadow-amber-600/20'
                   : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60'
               }`}
             >
               <svg
-                className="w-4 h-4"
+                className="w-3.5 h-3.5"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -171,11 +171,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <path d="M12 14.8V20" />
                 <path d="M8.5 20h7" />
               </svg>
-              Bierglazen
+              Glazenkast
               {showNavCollectionCounts && glassCount > 0 && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                    activeTab === 'glasses' ? 'bg-zinc-950 text-amber-300' : 'bg-zinc-800 text-zinc-400'
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full tabular-nums ${
+                    activeTab === 'glasses' ? 'bg-zinc-950/20 text-zinc-950' : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
                   {glassCount}
@@ -186,20 +186,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             {showExtrasTab && (
               <button
                 onClick={() => setActiveTab('extras')}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                   activeTab === 'extras' || activeTab === 'deals' || activeTab === 'counter'
-                    ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                    ? 'bg-amber-600 text-zinc-950 shadow-md shadow-amber-600/20'
                     : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60'
                 }`}
               >
-                <Sparkles className="w-4 h-4" />
-                Extra's
+                <Sparkles className="w-3.5 h-3.5" />
+                Extra&apos;s &amp; Route
                 {showExtrasDealBadge && activeDealCount > 0 && (
                   <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold tabular-nums ${
                       activeTab === 'extras' || activeTab === 'deals' || activeTab === 'counter'
-                        ? 'bg-zinc-950 text-amber-300'
-                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        ? 'bg-zinc-950/20 text-zinc-950'
+                        : 'text-emerald-400'
                     }`}
                     title={`${activeDealCount} actieve acties`}
                   >
@@ -211,13 +211,13 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => setActiveTab('friends')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                 activeTab === 'friends'
-                  ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-600 text-zinc-950 shadow-md shadow-amber-600/20'
                   : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60'
               }`}
             >
-              <Users className="w-4 h-4" />
+              <Users className="w-3.5 h-3.5" />
               Vrienden
             </button>
 
@@ -225,9 +225,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             {activeTab === 'settings' && (
               <button
                 onClick={() => setActiveTab('settings')}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all bg-amber-600 text-zinc-950 shadow-md shadow-amber-600/20"
               >
-                <Settings className="w-4 h-4" />
+                <Settings className="w-3.5 h-3.5" />
                 Instellingen
               </button>
             )}
@@ -240,10 +240,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             {!readOnly && (
               <button
                 onClick={onAddNewBeer}
-                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/20 transition-all hover:scale-105 active:scale-95 shrink-0"
+                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider font-bold bg-amber-600 hover:bg-amber-500 text-zinc-950 shadow-lg shadow-amber-600/20 transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0"
               >
-                <Plus className="w-4 h-4 stroke-[3] shrink-0" />
-                <span className="hidden xs:inline">Bier</span> Toevoegen
+                <Plus className="w-4 h-4 stroke-[2.5] shrink-0" />
+                <span className="hidden xs:inline">Bier</span> Noteren
               </button>
             )}
 
@@ -419,7 +419,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
 
         <div className="flex flex-col items-center shrink-0">
-          <PWAInstallButton />
+          <PWAInstallButton variant="compact" />
         </div>
       </div>
     </header>

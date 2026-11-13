@@ -6,6 +6,8 @@ import { getScoreLabel, getScoreColorClass } from './RatingBadge';
 import { DatePickerInput } from './DatePickerInput';
 import { ConfirmModal } from './ConfirmModal';
 import { CameraCaptureModal } from './CameraCaptureModal';
+import { ColorWheelPicker } from './ColorWheelPicker';
+import { COLOR_PALETTE } from '../services/storage';
 import { validateAndCompressImageFile, safeIsoDate } from '../utils/security';
 
 const DEFAULT_LOCATION_SUGGESTIONS = [
@@ -85,6 +87,7 @@ export const BeerModal: React.FC<BeerModalProps> = ({
   const [dateAdded, setDateAdded] = useState(new Date().toISOString().split('T')[0]);
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryColor, setNewCategoryColor] = useState(COLOR_PALETTE[0]);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
@@ -233,7 +236,7 @@ export const BeerModal: React.FC<BeerModalProps> = ({
     e.preventDefault();
     if (!newCategoryName.trim() || !onAddCategory) return;
     try {
-      const created = await onAddCategory(newCategoryName.trim());
+      const created = await onAddCategory(newCategoryName.trim(), newCategoryColor);
       if (created && created.id) {
         setCategoryId(created.id);
       }
@@ -652,35 +655,40 @@ export const BeerModal: React.FC<BeerModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowNewCategoryInput(!showNewCategoryInput)}
-                  className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 font-medium"
+                  className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 font-medium cursor-pointer"
                 >
-                  <Plus className="w-3 h-3" /> {showNewCategoryInput ? 'Sluiten' : 'Nieuwe stijl'}
+                  <Plus className="w-3 h-3" /> {showNewCategoryInput ? 'Sluiten' : 'Nieuwe categorie'}
                 </button>
               </div>
 
               {showNewCategoryInput && (
-                <div className="mb-2 p-3 rounded-xl bg-zinc-900 border border-zinc-700/50 space-y-2">
+                <div className="mb-3 p-3 rounded-xl bg-zinc-900 border border-zinc-700/70 space-y-2.5">
                   <div className="text-[11px] font-bold text-amber-400">Nieuwe categorie toevoegen:</div>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2.5">
                     <input
                       type="text"
                       value={newCategoryName}
                       onChange={(e) => setNewCategoryName(e.target.value)}
                       placeholder="bijv. Weizen, Bock, Porter..."
-                      className="w-full px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-100 text-xs focus:outline-none focus:border-amber-500"
+                      className="w-full px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-700 text-zinc-100 text-xs focus:outline-none focus:border-amber-500"
+                    />
+                    <ColorWheelPicker
+                      value={newCategoryColor}
+                      onChange={setNewCategoryColor}
+                      compact
                     />
                     <div className="flex gap-2">
                       <button
                         type="button"
                         onClick={handleQuickAddCategory}
-                        className="flex-1 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold hover:bg-amber-500/30 transition-colors"
+                        className="flex-1 px-3 py-1.5 rounded-lg bg-amber-600 text-zinc-950 text-xs font-bold hover:bg-amber-500 transition-colors cursor-pointer"
                       >
-                        Toevoegen
+                        Categorie toevoegen
                       </button>
                       <button
                         type="button"
                         onClick={() => setShowNewCategoryInput(false)}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 text-xs font-semibold hover:text-white"
+                        className="px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 text-xs font-semibold hover:text-white cursor-pointer"
                       >
                         Annuleren
                       </button>

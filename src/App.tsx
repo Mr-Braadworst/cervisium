@@ -1701,35 +1701,34 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-800/80 bg-zinc-950 py-6 text-center text-xs text-zinc-500">
+      <footer className="border-t border-zinc-800 bg-zinc-950 py-6 text-center text-xs font-mono text-zinc-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span translate="no" data-no-translate="true" className="notranslate font-semibold text-zinc-400">
-              Cervisium
+            <span translate="no" data-no-translate="true" className="notranslate font-bold text-zinc-300">
+              CERVISIUM
             </span>
-            <span>&bull; Jouw persoonlijke craft bier &amp; proefnotities app</span>
+            <span>· PERSOONLIJK BIERLOGBOEK</span>
             <span
               translate="no"
               data-no-translate="true"
-              className="notranslate inline-flex items-center px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400"
+              className="notranslate text-zinc-400 tabular-nums"
               title={versionDate ? `Laatst bijgewerkt op ${versionDate}` : 'Huidige applicatieversie'}
             >
-              v{appVersion}
+              · v{appVersion}
               {versionDate ? ` (${versionDate})` : ''}
             </span>
           </div>
           <div className="flex items-center gap-4 text-[11px] text-zinc-500">
-            <span>Ingelogd: {activeUser.email}</span>
+            <span>{activeUser.email}</span>
             <button
               onClick={() => setActiveTab('settings')}
-              className="text-amber-400 hover:underline font-medium"
+              className="text-amber-500 hover:underline font-medium cursor-pointer"
             >
               Profiel &amp; Instellingen
             </button>
             <button
               onClick={handleLogout}
-              className="text-rose-400 hover:underline font-medium"
+              className="text-rose-400 hover:underline font-medium cursor-pointer"
             >
               Uitloggen
             </button>

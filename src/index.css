@@ -1,64 +1,110 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: "Fraunces", Georgia, Cambria, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Warm Roasted Malt & Espresso Palette (No cold blue-blacks) */
+  --color-zinc-950: #110e0c;
+  --color-zinc-900: #191512;
+  --color-zinc-800: #29231e;
+  --color-zinc-700: #3d342c;
+  --color-zinc-600: #5c5045;
+  --color-zinc-500: #87796b;
+  --color-zinc-400: #b0a394;
+  --color-zinc-300: #d4c9bb;
+  --color-zinc-200: #e6ded2;
+  --color-zinc-100: #f4efe6;
+  --color-zinc-50: #faf7f2;
+
+  /* Raw Copper-Kettle Amber Palette */
+  --color-amber-600: #c8641b;
+  --color-amber-500: #df7826;
+  --color-amber-400: #eb9244;
+}
+
+/* Warm Unbleached Parchment Light Mode */
+html.light-mode {
+  --color-zinc-950: #f5f0e6;
+  --color-zinc-900: #ebe4d6;
+  --color-zinc-800: #d6cbb8;
+  --color-zinc-700: #b8ab96;
+  --color-zinc-600: #7a6e5d;
+  --color-zinc-500: #5c5143;
+  --color-zinc-400: #453c31;
+  --color-zinc-300: #2f2820;
+  --color-zinc-200: #211c16;
+  --color-zinc-100: #16120e;
+  --color-zinc-50: #0d0a08;
+  --color-amber-600: #b35312;
+  --color-amber-500: #c8641b;
+  --color-amber-400: #a64b0e;
+}
+
+html.light-mode .text-white {
+  color: #16120e !important;
+}
+
+html.light-mode .bg-amber-500 .text-white,
+html.light-mode .bg-amber-600 .text-white,
+html.light-mode .bg-emerald-500 .text-white,
+html.light-mode .bg-red-500 .text-white,
+html.light-mode .bg-blue-500 .text-white,
+html.light-mode button.bg-amber-500,
+html.light-mode button.bg-amber-600,
+html.light-mode button.bg-emerald-500,
+html.light-mode button.bg-red-500 {
+  color: #faf7f2 !important;
+}
+
+html.light-mode img + div.bg-gradient-to-t {
+  background: linear-gradient(to top, rgba(245, 240, 230, 0.96), rgba(245, 240, 230, 0.35), transparent) !important;
+}
+
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-    background-color: #090a0f;
-    color: #f4f4f5;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    background-color: var(--color-zinc-950);
+    color: var(--color-zinc-100);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-image: 
+      radial-gradient(circle at 18% 0%, rgba(223, 120, 38, 0.055), transparent 45%),
+      radial-gradient(circle at 85% 95%, rgba(200, 100, 27, 0.04), transparent 45%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, .font-serif-display {
+    font-family: var(--font-display);
   }
 }
 
-/* Licht Modus (White Thema) */
-html.light-mode {
-  --color-zinc-950: #ffffff;
-  --color-zinc-900: #f8fafc;
-  --color-zinc-800: #e2e8f0;
-  --color-zinc-700: #cbd5e1;
-  --color-zinc-600: #64748b;
-  --color-zinc-500: #475569;
-  --color-zinc-400: #334155;
-  --color-zinc-300: #1e293b;
-  --color-zinc-200: #0f172a;
-  --color-zinc-100: #09090b;
-  --color-zinc-50: #09090b;
-
-  /* Zachte lichte achtergronden voor hero-banners */
-  --color-amber-950: #fffbeb;
-  --color-emerald-950: #ecfdf5;
-  --color-rose-950: #fff1f2;
-  --color-purple-950: #faf5ff;
-  --color-sky-950: #f0f9ff;
-
-  /* Beter contrast voor accentteksten op een witte achtergrond */
-  --color-amber-300: #b45309;
-  --color-amber-400: #d97706;
-  --color-emerald-300: #047857;
-  --color-emerald-400: #059669;
-  --color-rose-300: #be123c;
-  --color-rose-400: #e11d48;
-  --color-sky-300: #0369a1;
-  --color-sky-400: #0284c7;
-  --color-purple-300: #6d28d9;
-  --color-purple-400: #7c3aed;
-
-  color-scheme: light;
+/* Tactile Paper & Editorial Utilities */
+.font-display {
+  font-family: var(--font-display);
 }
 
-html.light-mode body {
-  background-color: #ffffff;
-  color: #09090b;
+.editorial-rule {
+  border-color: rgba(212, 201, 187, 0.14);
 }
 
-/* Houd tekst op gekleurde knoppen (amber/emerald) donker en scherp leesbaar in licht modus */
-html.light-mode .bg-amber-500.text-zinc-950,
-html.light-mode .bg-emerald-500.text-zinc-950,
-html.light-mode .from-amber-400.text-zinc-950 {
-  color: #09090b !important;
+html.light-mode .editorial-rule {
+  border-color: rgba(22, 18, 14, 0.14);
 }
 
-html.light-mode .fill-zinc-950 {
-  fill: #09090b !important;
+/* Tactile rounded card border & soft warm shadow */
+.stamp-border {
+  border-radius: 1rem;
+  border: 1px solid var(--color-zinc-800);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.45), 0 4px 10px -4px rgba(0, 0, 0, 0.3);
+}
+
+html.light-mode .stamp-border {
+  box-shadow: 0 10px 25px -5px rgba(22, 18, 14, 0.1), 0 4px 10px -4px rgba(22, 18, 14, 0.06);
+}
+
+/* Documentary photo filter: warm contrast, slight analog grain feel */
+.photo-analog {
+  filter: contrast(1.04) saturate(0.92) sepia(0.08);
 }
 
 /* Custom subtle scrollbar */
@@ -66,32 +112,16 @@ html.light-mode .fill-zinc-950 {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
-  background: #090a0f;
+  background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: var(--color-zinc-800);
   border-radius: 9999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: #d97706;
+  background: var(--color-zinc-700);
 }
-
-html.light-mode ::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-html.light-mode ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-}
-html.light-mode ::-webkit-scrollbar-thumb:hover {
-  background: #d97706;
-}
-
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-

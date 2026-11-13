@@ -155,38 +155,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Persoonlijke Begroeting met eigen Google-accountnaam of vriendcollectie */}
+      {/* Persoonlijke Begroeting in Brouwersdagboek stijl */}
       {(viewingFriendUser || activeUser) && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/80 border border-zinc-800 rounded-2xl px-5 py-4 shadow-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 stamp-border">
           <div className="flex items-center gap-3.5 min-w-0">
             {(viewingFriendUser?.avatarUrl || (!readOnly && activeUser?.avatarUrl)) ? (
               <img
                 src={(viewingFriendUser?.avatarUrl || activeUser?.avatarUrl)!}
                 alt={viewingFriendUser?.name || activeUser?.name || ''}
-                className="w-11 h-11 rounded-2xl object-cover ring-2 ring-amber-500/40 shrink-0"
+                className="w-11 h-11 rounded-2xl object-cover border border-amber-500/50 shrink-0"
               />
             ) : (
-              <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/30 text-amber-300 font-extrabold text-base flex items-center justify-center shrink-0">
+              <div className="w-11 h-11 rounded-2xl bg-amber-600/20 border border-amber-500/40 text-amber-400 font-display font-bold text-lg flex items-center justify-center shrink-0">
                 {(viewingFriendUser?.name || activeUser?.name || '?').charAt(0).toUpperCase()}
               </div>
             )}
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-extrabold text-zinc-100 tracking-tight truncate">
+              <div className="font-mono text-[10px] uppercase tracking-widest text-amber-500">
+                {readOnly ? 'VRIENDENLOGBOEK · ALLEEN-LEZEN' : 'STAMTAFEL OVERZICHT'}
+              </div>
+              <h1 className="font-display text-xl sm:text-2xl font-bold text-zinc-100 tracking-tight truncate">
                 {readOnly && viewingFriendUser ? (
                   <>
-                    Collectie van <span className="text-amber-400">{viewingFriendUser.name}</span>
+                    Bierlogboek van <span className="text-amber-400">{viewingFriendUser.name}</span>
                   </>
                 ) : (
                   <>
-                    Welkom, <span className="text-amber-400">{activeUser?.name}</span>
+                    Goed je te zien, <span className="text-amber-400">{activeUser?.name}</span>
                   </>
                 )}
               </h1>
-              <p className="text-xs text-zinc-400 truncate">
-                {readOnly
-                  ? 'Alleen-lezen overzicht van geproefde bieren & scores'
-                  : 'Jouw persoonlijke biercollectie & proefnotities'}
-              </p>
             </div>
           </div>
 
@@ -194,10 +192,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               type="button"
               onClick={() => onNavigateToTab('settings')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-amber-300 text-xs font-semibold transition-colors w-fit shrink-0"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-amber-400 text-xs font-mono uppercase tracking-wider transition-colors w-fit shrink-0 cursor-pointer"
             >
-              <User className="w-3.5 h-3.5 text-amber-400" />
-              Naam aanpassen
+              <User className="w-3.5 h-3.5 text-amber-500" />
+              Profiel aanpassen
             </button>
           )}
         </div>
@@ -212,8 +210,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Zoek direct op biernaam of brouwerij..."
-          className="w-full pl-11 pr-10 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-500 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 shadow-lg transition-all"
+          placeholder="Zoek in het register op biernaam of brouwerij..."
+          className="w-full pl-11 pr-10 py-3 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-500 text-sm focus:outline-none focus:border-amber-500 transition-all stamp-border"
         />
         {searchQuery && (
           <button
@@ -227,12 +225,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Search Results if active */}
       {searchQuery.trim() && (
-        <div className="p-4 rounded-2xl bg-zinc-900/90 border border-amber-500/30 space-y-3">
+        <div className="p-4 rounded-2xl bg-zinc-900 border border-amber-500/40 space-y-3 stamp-border">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+            <h3 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider">
               Zoekresultaten ({matchingBeers.length})
             </h3>
-            <span className="text-[11px] text-zinc-500">voor &ldquo;{searchQuery}&rdquo;</span>
+            <span className="text-[11px] font-mono text-zinc-500">voor &ldquo;{searchQuery}&rdquo;</span>
           </div>
           {matchingBeers.length === 0 ? (
             <div className="py-6 text-center text-xs text-zinc-500">
@@ -251,26 +249,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div
                     key={beer.id}
                     onClick={() => onSelectBeer(beer)}
-                    className="p-3.5 rounded-xl bg-zinc-950/80 border border-zinc-800 hover:border-amber-500/50 cursor-pointer transition-all flex flex-col justify-between group"
+                    className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-amber-500/50 cursor-pointer transition-all flex flex-col justify-between group"
                   >
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <span
-                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
-                          style={{
-                            backgroundColor: `${cat?.color || '#f59e0b'}18`,
-                            borderColor: `${cat?.color || '#f59e0b'}40`,
-                            color: cat?.color || '#f59e0b',
-                          }}
+                          className="text-[11px] font-mono font-semibold"
+                          style={{ color: cat?.color || '#f59e0b' }}
                         >
                           {cat?.name || 'Onbekend'}
                         </span>
                         <RatingBadge rating={avg} size="sm" />
                       </div>
-                      <h4 className="font-bold text-xs text-zinc-100 group-hover:text-amber-300 transition-colors line-clamp-1">
+                      <h4 className="font-display font-bold text-sm text-zinc-100 group-hover:text-amber-400 transition-colors line-clamp-1">
                         {beer.name}
                       </h4>
-                      <p className="text-[11px] text-zinc-400 line-clamp-1">
+                      <p className="text-[11px] font-mono text-zinc-400 line-clamp-1">
                         {beer.brewery || 'Onbekende brouwerij'}
                       </p>
                     </div>
@@ -285,75 +279,67 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
         {/* Totaal aantal verschillende bieren */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-md">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between stamp-border">
           <div className="flex items-center justify-between text-zinc-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Totaal aantal verschillende bieren</span>
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-              <BeerIcon className="w-4 h-4" />
-            </div>
+            <span className="text-[11px] font-mono uppercase tracking-wider">Geproefde Bieren</span>
+            <BeerIcon className="w-4 h-4 text-amber-500" />
           </div>
           <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-zinc-100">
+            <div className="text-2xl sm:text-3xl font-mono font-bold text-zinc-100 tabular-nums">
               {stats.total}
             </div>
-            <span className="text-[11px] text-zinc-500">
-              in {categories.length} {categories.length === 1 ? 'stijl' : 'stijlen'}
+            <span className="text-[11px] font-mono text-zinc-500">
+              verdeeld over {categories.length} {categories.length === 1 ? 'categorie' : 'categorieën'}
             </span>
           </div>
         </div>
 
         {/* Gemiddeld Cijfer */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-md">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between stamp-border">
           <div className="flex items-center justify-between text-zinc-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Gemiddelde Score</span>
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-              <TrendingUp className="w-4 h-4" />
-            </div>
+            <span className="text-[11px] font-mono uppercase tracking-wider">Gemiddeld Cijfer</span>
+            <TrendingUp className="w-4 h-4 text-amber-500" />
           </div>
           <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-amber-400">
+            <div className="text-2xl sm:text-3xl font-mono font-bold text-amber-400 tabular-nums">
               {stats.avgRating > 0 ? stats.avgRating.toFixed(1) : '-'}
-              <span className="text-xs font-medium text-zinc-500 ml-1">/10</span>
+              <span className="text-xs font-normal text-zinc-500 ml-1">/10</span>
             </div>
-            <span className="text-[11px] text-zinc-500">
-              {stats.total > 0 ? 'over alle bieren' : 'nog geen data'}
+            <span className="text-[11px] font-mono text-zinc-500">
+              {stats.total > 0 ? 'over alle proefnotities' : 'nog geen data'}
             </span>
           </div>
         </div>
 
         {/* Meest Gedronken Stijl */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-md">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between stamp-border">
           <div className="flex items-center justify-between text-zinc-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Meest Gedronken</span>
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-              <Flame className="w-4 h-4" />
-            </div>
+            <span className="text-[11px] font-mono uppercase tracking-wider">Favoriete Categorie</span>
+            <Flame className="w-4 h-4 text-amber-500" />
           </div>
           <div>
-            <div className="text-base sm:text-lg font-bold text-zinc-100 truncate">
+            <div className="font-display text-lg sm:text-xl font-bold text-zinc-100 truncate">
               {stats.topCategory ? stats.topCategory.name : 'Geen data'}
             </div>
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-[11px] font-mono text-zinc-500 tabular-nums">
               {stats.topCategory
-                ? `${beers.filter((b) => b.categoryId === stats.topCategory?.id).length} bieren geproefd`
+                ? `${beers.filter((b) => b.categoryId === stats.topCategory?.id).length}× in logboek`
                 : 'Voeg categorieën toe'}
             </span>
           </div>
         </div>
 
         {/* Gemiddeld Alcohol % */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-md">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between stamp-border">
           <div className="flex items-center justify-between text-zinc-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Gemiddeld ABV</span>
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-              <Percent className="w-4 h-4" />
-            </div>
+            <span className="text-[11px] font-mono uppercase tracking-wider">Gemiddeld ABV</span>
+            <Percent className="w-4 h-4 text-amber-500" />
           </div>
           <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-zinc-100">
+            <div className="text-2xl sm:text-3xl font-mono font-bold text-zinc-100 tabular-nums">
               {stats.avgAbv > 0 ? `${stats.avgAbv.toFixed(1)}%` : '-'}
             </div>
-            <span className="text-[11px] text-zinc-500">alcoholpercentage</span>
+            <span className="text-[11px] font-mono text-zinc-500">alcoholpercentage</span>
           </div>
         </div>
       </div>

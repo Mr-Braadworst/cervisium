@@ -637,11 +637,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans selection:bg-amber-500 selection:text-zinc-950">
-      {/* Background glow & craft atmosphere */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[32rem] h-[32rem] bg-amber-600/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-
+    <div className="min-h-screen bg-zinc-950 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans selection:bg-amber-600 selection:text-zinc-950">
       {/* Main Container */}
       <div className="w-full max-w-md relative z-10 space-y-6">
         {onBackToLanding && (
@@ -649,51 +645,51 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="button"
               onClick={onBackToLanding}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Terug naar de voorpagina &amp; uitleg</span>
+              <span>Terug naar het overzicht</span>
             </button>
           </div>
         )}
 
-        {/* Brand Header */}
-        <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-zinc-950 shadow-xl shadow-amber-500/25 ring-4 ring-amber-500/20 mb-1">
-            <Beer className="w-8 h-8 stroke-[2.5]" />
+        {/* Editorial Brand Header */}
+        <div className="border-b border-zinc-800 pb-5 space-y-2">
+          <div className="flex items-baseline justify-between">
+            <span className="font-mono text-[11px] uppercase tracking-widest text-amber-500">
+              PERSOONLIJK BIERLOGBOEK
+            </span>
+            <span className="font-mono text-[11px] text-zinc-500 tabular-nums">
+              v{appVersion}
+            </span>
           </div>
-          <div>
-            <h1
-              translate="no"
-              data-no-translate="true"
-              className="notranslate text-3xl font-extrabold tracking-tight text-zinc-100"
-            >
-              Cervisium
-            </h1>
-            <p className="text-xs font-semibold text-amber-400 tracking-wider uppercase mt-0.5">
-              Persoonlijke Bier Collectie &amp; Proefnotities
-            </p>
-          </div>
-          <p className="text-sm text-zinc-400 max-w-xs mx-auto leading-relaxed">
-            Log veilig in met je e-mailadres of je gekoppelde account.
+          <h1
+            translate="no"
+            data-no-translate="true"
+            className="notranslate font-display text-4xl font-bold tracking-tight text-zinc-100"
+          >
+            Cervisium
+          </h1>
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            Open jouw eigen proefboek of maak een nieuw logboek aan.
           </p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-zinc-900/95 border border-zinc-800 rounded-3xl p-6 sm:p-7 shadow-2xl backdrop-blur-xl space-y-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
-            <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-amber-400" />
-              Account Toegang
+        <div className="bg-zinc-900 border border-zinc-700 rounded-3xl p-6 sm:p-7 stamp-border space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+            <span className="text-xs font-mono font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-amber-500" />
+              Toegang tot je logboek
             </span>
-            <span className="text-[11px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
+            <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              Beveiligd
+              Versleuteld
             </span>
           </div>
 
           {/* Mode Toggle: Inloggen vs Account aanmaken */}
-          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-zinc-950 border border-zinc-800/90">
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-zinc-950 border border-zinc-800">
             <button
               type="button"
               onClick={() => {
@@ -701,9 +697,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 setAuthError(null);
                 setResetSuccessMessage(null);
               }}
-              className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                 authMode === 'login'
-                  ? 'bg-amber-500 text-zinc-950 shadow-md'
+                  ? 'bg-amber-600 text-zinc-950'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
@@ -717,14 +713,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 setAuthError(null);
                 setResetSuccessMessage(null);
               }}
-              className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer ${
                 authMode === 'register'
-                  ? 'bg-amber-500 text-zinc-950 shadow-md'
+                  ? 'bg-amber-600 text-zinc-950'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>Account aanmaken</span>
+              <span>Nieuw logboek</span>
             </button>
           </div>
 
@@ -902,21 +898,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="submit"
               disabled={isSigningIn || isLocked}
-              className={`w-full flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl font-extrabold text-sm shadow-lg transition-all ${
+              className={`w-full flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all ${
                 isLocked
                   ? 'bg-zinc-800 text-zinc-500 border border-zinc-700/60 cursor-not-allowed opacity-60'
-                  : 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-zinc-950 cursor-pointer shadow-amber-500/20'
+                  : 'bg-amber-600 hover:bg-amber-500 text-zinc-950 cursor-pointer stamp-border'
               }`}
             >
               {authMode === 'register' ? (
                 <>
                   <UserPlus className="w-4 h-4" />
-                  <span>{isSigningIn ? 'Account aanmaken...' : 'Account aanmaken'}</span>
+                  <span>{isSigningIn ? 'Logboek aanmaken...' : 'Open mijn bierlogboek'}</span>
                 </>
               ) : (
                 <>
                   <LogIn className="w-4 h-4" />
-                  <span>{isSigningIn ? 'Bezig met inloggen...' : 'Inloggen met e-mail'}</span>
+                  <span>{isSigningIn ? 'Bezig met openen...' : 'Inloggen met e-mail'}</span>
                 </>
               )}
             </button>
@@ -924,7 +920,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
           <div className="relative flex py-1 items-center">
             <div className="flex-grow border-t border-zinc-800" />
-            <span className="flex-shrink mx-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+            <span className="flex-shrink mx-3 text-[10px] font-mono uppercase tracking-widest text-zinc-500">
               Of
             </span>
             <div className="flex-grow border-t border-zinc-800" />
@@ -941,10 +937,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               type="button"
               onClick={handleFirebaseGoogleSignIn}
               disabled={isSigningIn || isLocked}
-              className={`w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl font-bold text-sm shadow-lg transition-all ${
+              className={`w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl font-bold text-xs uppercase tracking-wider border transition-all ${
                 isLocked
-                  ? 'bg-zinc-800 text-zinc-500 border border-zinc-700/60 cursor-not-allowed opacity-60'
-                  : 'bg-white hover:bg-zinc-100 active:bg-zinc-200 text-zinc-900 cursor-pointer shadow-amber-500/5 hover:shadow-amber-500/10'
+                  ? 'bg-zinc-800 text-zinc-500 border-zinc-700/60 cursor-not-allowed opacity-60'
+                  : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-100 border-zinc-700 cursor-pointer'
               }`}
             >
               {isLocked ? (
@@ -972,52 +968,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                     />
                   </svg>
-                  <span>Inloggen met Google</span>
+                  <span>Verder met Google</span>
                 </>
               )}
             </button>
           </div>
 
           {/* Privacy & data scoping guarantee */}
-          <div className="p-3.5 rounded-2xl bg-zinc-950/60 border border-zinc-800/80 text-[11px] text-zinc-400 space-y-1">
-            <div className="flex items-center gap-1.5 font-semibold text-zinc-300">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              Persoonlijke Data Isolatie
-            </div>
-            <p className="leading-relaxed text-zinc-400">
-              Al jouw bieren, cijfers, foto&apos;s en zelfgemaakte categorieën worden strikt
-              gekoppeld aan jouw persoonlijke account en zijn nooit zichtbaar voor anderen.
-            </p>
+          <div className="pt-3 border-t border-zinc-800 text-xs text-zinc-400 leading-relaxed">
+            <span className="font-mono text-[11px] uppercase text-amber-500 block mb-0.5">
+              100% Eigen Logboek
+            </span>
+            Al jouw bieren, rapportcijfers, kroegentochten en foto&apos;s staan privé op jouw naam en
+            zijn alleen zichtbaar voor vrienden die jij zelf koppelt.
           </div>
         </div>
 
-        {/* Feature bullets preview */}
-        <div className="grid grid-cols-3 gap-2 text-center pt-2">
-          <div className="p-2.5 rounded-xl bg-zinc-900/40 border border-zinc-800/60">
-            <Trophy className="w-4 h-4 text-amber-400 mx-auto mb-1" />
-            <span className="text-[11px] font-bold text-zinc-300 block">Top Bieren</span>
-            <span className="text-[10px] text-zinc-500">Cijfers 1 t/m 10</span>
-          </div>
-          <div className="p-2.5 rounded-xl bg-zinc-900/40 border border-zinc-800/60">
-            <Sparkles className="w-4 h-4 text-amber-400 mx-auto mb-1" />
-            <span className="text-[11px] font-bold text-zinc-300 block">Dynamisch</span>
-            <span className="text-[10px] text-zinc-500">Eigen categorieën</span>
-          </div>
-          <div className="p-2.5 rounded-xl bg-zinc-900/40 border border-zinc-800/60">
-            <ShieldCheck className="w-4 h-4 text-amber-400 mx-auto mb-1" />
-            <span className="text-[11px] font-bold text-zinc-300 block">Max 5 Pogingen</span>
-            <span className="text-[10px] text-zinc-500">Beveiligde login</span>
-          </div>
-        </div>
-
-        {/* Version Number Footer */}
+        {/* Editorial Colophon Footer */}
         <div
           translate="no"
           data-no-translate="true"
-          className="notranslate text-center pt-1 text-[11px] font-mono text-zinc-500"
+          className="notranslate flex items-center justify-between pt-2 text-[11px] font-mono text-zinc-500 border-t border-zinc-800/80"
         >
-          Cervisium v{appVersion}
-          {versionDate ? ` • ${versionDate}` : ''}
+          <span>CERVISIUM BROUWERSDAGBOEK</span>
+          <span className="tabular-nums">
+            v{appVersion}
+            {versionDate ? ` · ${versionDate}` : ''}
+          </span>
         </div>
       </div>
     </div>

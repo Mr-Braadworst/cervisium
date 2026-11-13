@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Category, Beer, Tasting } from '../types';
 import { COLOR_PALETTE } from '../services/storage';
 import { RatingBadge } from './RatingBadge';
+import { ColorWheelPicker } from './ColorWheelPicker';
 import {
   Tag,
   Plus,
@@ -160,53 +161,43 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             <span className="text-xs text-zinc-400">Volledig zelf instelbaar</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                Categorienaam <span className="text-amber-400">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                autoFocus
-                value={newCatName}
-                onChange={(e) => setNewCatName(e.target.value)}
-                placeholder="bijv. Double IPA, Quadrupel, Geuze..."
-                className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-              />
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <div className="lg:col-span-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Categorienaam <span className="text-amber-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="bijv. Double IPA, Quadrupel, Geuze..."
+                  className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                />
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                Kleuraccent
-              </label>
-              <div className="flex items-center gap-2 flex-wrap py-1">
-                {COLOR_PALETTE.map((c) => (
-                  <button
-                    type="button"
-                    key={c}
-                    onClick={() => setNewCatColor(c)}
-                    className={`w-6 h-6 rounded-full transition-transform ${
-                      newCatColor === c ? 'scale-125 ring-2 ring-white ring-offset-2 ring-offset-zinc-900' : 'hover:scale-110'
-                    }`}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Beschrijving <span className="text-zinc-500 font-normal">(optioneel)</span>
+                </label>
+                <input
+                  type="text"
+                  value={newCatDesc}
+                  onChange={(e) => setNewCatDesc(e.target.value)}
+                  placeholder="bijv. Uitgesproken hoppig met tropische aroma's en stevige bitterheid"
+                  className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                />
               </div>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-zinc-300 mb-1">
-              Beschrijving <span className="text-zinc-500 font-normal">(optioneel)</span>
-            </label>
-            <input
-              type="text"
-              value={newCatDesc}
-              onChange={(e) => setNewCatDesc(e.target.value)}
-              placeholder="bijv. Uitgesproken hoppig met tropische aroma's en stevige bitterheid"
-              className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-            />
+            <div className="lg:col-span-7">
+              <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                Kies een kleur op het kleurenwiel
+              </label>
+              <ColorWheelPicker value={newCatColor} onChange={setNewCatColor} />
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -276,18 +267,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       className="w-full px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-700 text-sm text-zinc-100"
                     />
                   </div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {COLOR_PALETTE.map((c) => (
-                      <button
-                        type="button"
-                        key={c}
-                        onClick={() => setEditColor(c)}
-                        className={`w-5 h-5 rounded-full ${
-                          editColor === c ? 'scale-125 ring-2 ring-white' : ''
-                        }`}
-                        style={{ backgroundColor: c }}
-                      />
-                    ))}
+                  <div>
+                    <label className="block text-[11px] font-mono text-zinc-400 mb-1">
+                      Kleur kiezen op kleurenwiel
+                    </label>
+                    <ColorWheelPicker value={editColor} onChange={setEditColor} compact />
                   </div>
                   <div>
                     <input

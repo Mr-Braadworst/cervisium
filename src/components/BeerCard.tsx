@@ -68,42 +68,32 @@ export const BeerCard: React.FC<BeerCardProps> = ({
   return (
     <div
       onClick={() => onSelect(beer)}
-      className="group relative bg-zinc-900/90 border border-zinc-800 hover:border-amber-500/50 rounded-2xl p-5 shadow-lg transition-all duration-200 hover:shadow-amber-500/10 cursor-pointer flex flex-col justify-between"
+      className="group relative bg-zinc-900 border border-zinc-800 hover:border-amber-600/60 rounded-2xl p-5 transition-all duration-200 cursor-pointer flex flex-col justify-between stamp-border"
     >
       <div>
-        {/* Top Row: Category, ABV & Actions (always aligned across all cards) */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2 flex-wrap min-w-0">
+        {/* Top Row: Unboxed Category · ABV & Actions */}
+        <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-800">
+          <div className="flex items-center gap-2 flex-wrap min-w-0 font-mono text-xs">
             {rank && (
               <span
-                className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                className={`inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[11px] font-bold ${
                   rank === 1
-                    ? 'bg-amber-400 text-zinc-950 ring-2 ring-amber-300'
+                    ? 'bg-amber-500 text-zinc-950'
                     : rank === 2
-                    ? 'bg-zinc-300 text-zinc-950 ring-2 ring-zinc-200'
+                    ? 'bg-zinc-200 text-zinc-950'
                     : rank === 3
-                    ? 'bg-amber-700 text-white ring-2 ring-amber-600'
+                    ? 'bg-amber-700 text-white'
                     : 'bg-zinc-800 text-zinc-400'
                 }`}
               >
                 #{rank}
               </span>
             )}
-            <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border"
-              style={{
-                backgroundColor: `${catColor}18`,
-                borderColor: `${catColor}40`,
-                color: catColor,
-              }}
-            >
-              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: catColor }} />
-              {category?.name || 'Onbekende categorie'}
+            <span className="font-semibold" style={{ color: catColor }}>
+              {category?.name || 'Onbekende stijl'}
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-800/80 text-zinc-300 border border-zinc-700/60">
-              <BeerIcon className="w-3 h-3 text-amber-400" />
-              {beer.abv.toFixed(1)}%
-            </span>
+            <span className="text-zinc-600">·</span>
+            <span className="text-zinc-300 tabular-nums">{beer.abv.toFixed(1)}% ABV</span>
           </div>
           <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
             {readOnly ? (
@@ -137,14 +127,14 @@ export const BeerCard: React.FC<BeerCardProps> = ({
                     <MoreVertical className="w-4 h-4" />
                   </button>
                   {menuOpen && (
-                    <div className="absolute right-0 top-full mt-1 w-44 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-xl py-1 z-20">
+                    <div className="absolute right-0 top-full mt-1 w-44 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl py-1 z-20">
                       {onOpenAddTasting && (
                         <button
                           onClick={() => {
                             setMenuOpen(false);
                             onOpenAddTasting(beer);
                           }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-amber-300 hover:bg-zinc-800"
+                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-amber-400 hover:bg-zinc-800"
                         >
                           <PlusCircle className="w-3.5 h-3.5 text-amber-400" />
                           Nogmaals drinken
@@ -188,49 +178,47 @@ export const BeerCard: React.FC<BeerCardProps> = ({
           </div>
         </div>
 
-        {/* Middle Row: Left-aligned Title, Brewery & Tags + Right-aligned Photo */}
+        {/* Middle Row: Left-aligned Title, Brewery & Unboxed Metadata + Right-aligned Photo */}
         <div className="flex items-start justify-between gap-3.5 mb-3">
           <div className="flex-1 min-w-0">
             <h3
               translate="no"
               data-no-translate="true"
-              className="notranslate font-bold text-lg text-zinc-100 group-hover:text-amber-300 transition-colors line-clamp-1"
+              className="notranslate font-display font-bold text-xl text-zinc-100 group-hover:text-amber-400 transition-colors line-clamp-1"
             >
               {beer.name}
             </h3>
             <p
               translate={beer.brewery ? 'no' : undefined}
               data-no-translate={beer.brewery ? 'true' : undefined}
-              className={`${beer.brewery ? 'notranslate ' : ''}text-sm text-zinc-400 mb-2.5 line-clamp-1 font-medium`}
+              className={`${beer.brewery ? 'notranslate ' : ''}text-xs font-mono text-zinc-400 mb-2 line-clamp-1`}
             >
               {beer.brewery ? beer.brewery : 'Onbekende brouwerij'}
             </p>
-            <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 font-medium">
-                {tastings.length === 1 ? '1x gedronken' : `${tastings.length}x gedronken`}
-              </span>
+            <div className="font-mono text-[11px] text-zinc-400 leading-relaxed tabular-nums">
+              <span>{tastings.length === 1 ? '1× geproefd' : `${tastings.length}× geproefd`}</span>
               {lastTasting?.servingType && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800/80 text-amber-300 border border-amber-500/20 font-medium">
-                  <span>
-                    {lastTasting.servingType === 'tap' ? '🍺 Van de tap' : lastTasting.servingType === 'fles' ? '🍾 Fles' : '🥫 Blik'}
-                  </span>
+                <span className="text-amber-400">
+                  {' · '}
+                  {lastTasting.servingType === 'tap'
+                    ? 'Van de tap'
+                    : lastTasting.servingType === 'fles'
+                    ? 'Fles'
+                    : 'Blik'}
                 </span>
               )}
               {lastTasting?.location && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 max-w-[130px] truncate">
-                  <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
-                  <span className="truncate">{lastTasting.location}</span>
-                </span>
+                <span className="text-zinc-300"> · {lastTasting.location}</span>
               )}
             </div>
           </div>
 
           {displayPhoto && (
-            <div className="w-20 h-20 rounded-xl overflow-hidden border border-zinc-700/80 shrink-0 bg-zinc-950 shadow-md ring-1 ring-white/5">
+            <div className="w-20 h-20 rounded-xl overflow-hidden border border-zinc-700 shrink-0 bg-zinc-950 shadow-md">
               <img
                 src={displayPhoto}
                 alt={beer.name}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover photo-analog"
                 style={{
                   objectPosition: beer.photoPosition || '50% 50%',
                   transform: (beer.photoZoom || 1) > 1 ? `scale(${beer.photoZoom})` : undefined,
@@ -243,16 +231,16 @@ export const BeerCard: React.FC<BeerCardProps> = ({
 
         {/* Tasting Notes */}
         {lastTasting?.notes ? (
-          <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed mb-4 italic bg-zinc-950/40 p-2.5 rounded-lg border border-zinc-800/60">
+          <p className="text-xs text-zinc-300 line-clamp-2 leading-relaxed mb-4 italic border-l-2 border-amber-600/60 pl-3 py-0.5">
             &ldquo;{lastTasting.notes}&rdquo;
           </p>
         ) : (
           <p className="text-xs text-zinc-600 line-clamp-1 mb-4 italic">
-            Geen recente proefnotities
+            Geen proefnotitie opgeschreven
           </p>
         )}
       </div>
-      <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between gap-2">
+      <div className="pt-3 border-t border-zinc-800 flex items-center justify-between gap-2">
         <RatingBadge rating={avgRating} size="md" showLabel />
         <div className="flex items-center gap-2">
           {!readOnly && onOpenAddTasting && (
@@ -261,14 +249,14 @@ export const BeerCard: React.FC<BeerCardProps> = ({
                 e.stopPropagation();
                 onOpenAddTasting(beer);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-zinc-950 border border-amber-500/30 text-xs font-bold transition-all shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-amber-600 text-amber-400 hover:text-zinc-950 border border-amber-600/40 text-xs font-mono uppercase tracking-wider font-bold transition-all cursor-pointer"
               title="Geef aan dat je dit bier nog een keer hebt gedronken"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>Inchecken</span>
             </button>
           )}
-          <div className="hidden sm:flex items-center gap-1 text-[11px] text-zinc-500">
+          <div className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-zinc-500 tabular-nums">
             <Calendar className="w-3 h-3 text-zinc-600" />
             <span>{formattedDate}</span>
           </div>
